@@ -140,9 +140,6 @@ private:
     void PriorityBoostStarvedThreads();
 
 private:
-    /// Boost low priority starved threads
-    void PriorityBoostStarvedThreads();
-
     Kernel::KernelSystem& kernel;
     Core::ARM_Interface* cpu{};
     KThread* current_thread{};
