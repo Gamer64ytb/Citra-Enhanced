@@ -4,73 +4,80 @@
 
 #include "common/assert.h"
 #include "common/logging/log.h"
-#include "core/hle/kernel/client_port.h"
-#include "core/hle/kernel/client_session.h"
+#include "common/scope_exit.h"
 #include "core/hle/kernel/ipc_debugger/recorder.h"
-#include "core/hle/kernel/process.h"
-#include "core/hle/kernel/server_port.h"
-#include "core/hle/kernel/server_session.h"
-#include "core/hle/kernel/session.h"
-#include "core/hle/kernel/thread.h"
+#include "core/hle/kernel/k_client_port.h"
+#include "core/hle/kernel/k_client_session.h"
+#include "core/hle/kernel/k_port.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_server_port.h"
+#include "core/hle/kernel/k_server_session.h"
+#include "core/hle/kernel/k_session.h"
+#include "core/hle/kernel/k_thread.h"
 #include "core/hle/service/service.h"
 
 namespace IPCDebugger {
 
 namespace {
-ObjectInfo GetObjectInfo(const Kernel::Object* object) {
+
+ObjectInfo GetObjectInfo(const Kernel::KAutoObject* object) {
     if (object == nullptr) {
         return {};
     }
-    return {object->GetTypeName(), object->GetName(), static_cast<int>(object->GetObjectId())};
+    return {object->GetTypeName(), /*object->GetName()*/ "KAutoObject",
+            /*static_cast<int>(object->GetObjectId())*/ 1};
 }
 
-ObjectInfo GetObjectInfo(const Kernel::Thread* thread) {
+ObjectInfo GetObjectInfo(const Kernel::KThread* thread) {
     if (thread == nullptr) {
         return {};
     }
-    return {thread->GetTypeName(), thread->GetName(), static_cast<int>(thread->GetThreadId())};
+    return {thread->GetTypeName(), /*thread->GetName()*/ "KThread",
+            /*static_cast<int>(object->GetObjectId())*/ 1};
 }
 
 ObjectInfo GetObjectInfo(const Kernel::Process* process) {
     if (process == nullptr) {
         return {};
     }
-    return {process->GetTypeName(), process->GetName(), static_cast<int>(process->process_id)};
+    return {process->GetTypeName(), /*process->GetName()*/ "KProcess",
+            static_cast<int>(process->process_id)};
 }
-} // namespace
+
+} // Anonymous namespace
 
 Recorder::Recorder() = default;
+
 Recorder::~Recorder() = default;
 
 bool Recorder::IsEnabled() const {
     return enabled.load(std::memory_order_relaxed);
 }
 
-void Recorder::RegisterRequest(const std::shared_ptr<Kernel::ClientSession>& client_session,
-                               const std::shared_ptr<Kernel::Thread>& client_thread) {
+void Recorder::RegisterRequest(const Kernel::KClientSession* client_session,
+                               const Kernel::KThread* client_thread) {
     const u32 thread_id = client_thread->GetThreadId();
+    const RequestRecord record = {
+        .id = ++record_count,
+        .status = RequestStatus::Sent,
+        .client_process = GetObjectInfo(client_thread->GetOwner()),
+        .client_thread = GetObjectInfo(client_thread),
+        .client_session = GetObjectInfo(client_session),
+        .client_port = GetObjectInfo(client_session->GetParent()->GetParent()),
+        .server_process = {},
+        .server_thread = {},
+        .server_session = GetObjectInfo(&client_session->GetParent()->GetServerSession()),
+    };
 
-    if (auto owner_process = client_thread->owner_process.lock()) {
-        RequestRecord record = {/* id */ ++record_count,
-                                /* status */ RequestStatus::Sent,
-                                /* client_process */ GetObjectInfo(owner_process.get()),
-                                /* client_thread */ GetObjectInfo(client_thread.get()),
-                                /* client_session */ GetObjectInfo(client_session.get()),
-                                /* client_port */ GetObjectInfo(client_session->parent->port.get()),
-                                /* server_process */ {},
-                                /* server_thread */ {},
-                                /* server_session */ GetObjectInfo(client_session->parent->server)};
-        record_map.insert_or_assign(thread_id, std::make_unique<RequestRecord>(record));
-        client_session_map.insert_or_assign(thread_id, client_session);
-
-        InvokeCallbacks(record);
-    }
+    record_map.insert_or_assign(thread_id, std::make_unique<RequestRecord>(record));
+    client_session_map.insert_or_assign(thread_id, client_session);
+    InvokeCallbacks(record);
 }
 
-void Recorder::SetRequestInfo(const std::shared_ptr<Kernel::Thread>& client_thread,
+void Recorder::SetRequestInfo(const Kernel::KThread* client_thread,
                               std::vector<u32> untranslated_cmdbuf,
                               std::vector<u32> translated_cmdbuf,
-                              const std::shared_ptr<Kernel::Thread>& server_thread) {
+                              const Kernel::KThread* server_thread) {
     const u32 thread_id = client_thread->GetThreadId();
     if (!record_map.count(thread_id)) {
         // This is possible when the recorder is enabled after application started
@@ -84,30 +91,34 @@ void Recorder::SetRequestInfo(const std::shared_ptr<Kernel::Thread>& client_thre
     record.translated_request_cmdbuf = std::move(translated_cmdbuf);
 
     if (server_thread) {
-        if (auto owner_process = server_thread->owner_process.lock()) {
-            record.server_process = GetObjectInfo(owner_process.get());
-        }
-        record.server_thread = GetObjectInfo(server_thread.get());
+        record.server_process = GetObjectInfo(server_thread->GetOwner());
+        record.server_thread = GetObjectInfo(server_thread);
     } else {
         record.is_hle = true;
     }
 
     // Function name
     ASSERT_MSG(client_session_map.count(thread_id), "Client session is missing");
-    const auto& client_session = client_session_map[thread_id];
-    if (client_session->parent->port &&
-        client_session->parent->port->GetServerPort()->hle_handler) {
+    const auto client_session = client_session_map[thread_id];
 
-        record.function_name = std::dynamic_pointer_cast<Service::ServiceFrameworkBase>(
-                                   client_session->parent->port->GetServerPort()->hle_handler)
+    SCOPE_EXIT({
+        client_session_map.erase(thread_id);
+        InvokeCallbacks(record);
+    });
+
+    auto port = client_session->GetParent()->GetParent();
+    if (!port) {
+        return;
+    }
+
+    auto hle_handler = port->GetParent()->GetServerPort().GetHleHandler();
+    if (hle_handler) {
+        record.function_name = std::dynamic_pointer_cast<Service::ServiceFrameworkBase>(hle_handler)
                                    ->GetFunctionName({record.untranslated_request_cmdbuf[0]});
     }
-    client_session_map.erase(thread_id);
-
-    InvokeCallbacks(record);
 }
 
-void Recorder::SetReplyInfo(const std::shared_ptr<Kernel::Thread>& client_thread,
+void Recorder::SetReplyInfo(const Kernel::KThread* client_thread,
                             std::vector<u32> untranslated_cmdbuf,
                             std::vector<u32> translated_cmdbuf) {
     const u32 thread_id = client_thread->GetThreadId();
@@ -129,7 +140,7 @@ void Recorder::SetReplyInfo(const std::shared_ptr<Kernel::Thread>& client_thread
     record_map.erase(thread_id);
 }
 
-void Recorder::SetHLEUnimplemented(const std::shared_ptr<Kernel::Thread>& client_thread) {
+void Recorder::SetHLEUnimplemented(const Kernel::KThread* client_thread) {
     const u32 thread_id = client_thread->GetThreadId();
     if (!record_map.count(thread_id)) {
         // This is possible when the recorder is enabled after application started

@@ -9,7 +9,7 @@
 #include "core/arm/arm_interface.h"
 #include "core/core.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/process.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/hle/service/ldr_ro/cro_helper.h"
 #include "core/hle/service/ldr_ro/ldr_ro.h"
 
@@ -146,7 +146,7 @@ void RO::LoadCRR(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     VAddr crr_buffer_ptr = rp.Pop<u32>();
     u32 crr_size = rp.Pop<u32>();
-    auto process = rp.PopObject<Kernel::Process>();
+    [[maybe_unused]] auto process = rp.PopObject<Kernel::Process>();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(ResultSuccess);
@@ -158,7 +158,7 @@ void RO::LoadCRR(Kernel::HLERequestContext& ctx) {
 void RO::UnloadCRR(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     u32 crr_buffer_ptr = rp.Pop<u32>();
-    auto process = rp.PopObject<Kernel::Process>();
+    [[maybe_unused]] auto process = rp.PopObject<Kernel::Process>();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(ResultSuccess);

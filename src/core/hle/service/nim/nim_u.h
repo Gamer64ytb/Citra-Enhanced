@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -526,9 +527,10 @@ private:
      */
     void DownloadMissingTitleSeedsAsync(Kernel::HLERequestContext& ctx);
 
-    std::shared_ptr<Kernel::Event> nim_system_update_event_for_menu;
-    std::shared_ptr<Kernel::Event> nim_system_update_event_for_news;
-    std::shared_ptr<Kernel::Event> nim_async_completion_event;
+    KernelHelpers::ServiceContext service_context;
+    Kernel::KEvent* nim_system_update_event_for_menu;
+    Kernel::KEvent* nim_system_update_event_for_news;
+    Kernel::KEvent* nim_async_completion_event;
 
     template <class Archive>
     void serialize(Archive& ar, const unsigned int) {

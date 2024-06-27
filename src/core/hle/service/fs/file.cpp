@@ -5,14 +5,12 @@
 #include <boost/serialization/unique_ptr.hpp>
 #include "common/archives.h"
 #include "common/logging/log.h"
-#include "core/core.h"
 #include "core/file_sys/errors.h"
 #include "core/file_sys/file_backend.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/client_port.h"
-#include "core/hle/kernel/client_session.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/server_session.h"
+#include "core/hle/kernel/k_client_port.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_session.h"
 #include "core/hle/service/fs/file.h"
 
 SERIALIZE_EXPORT_IMPL(Service::FS::File)
@@ -378,10 +376,15 @@ void File::OpenLinkFile(Kernel::HLERequestContext& ctx) {
     using Kernel::ServerSession;
     IPC::RequestParser rp(ctx);
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-    auto [server, client] = kernel.CreateSessionPair(GetName());
+
+    auto* session = Kernel::KSession::Create(kernel);
+    session->Initialize(nullptr);
+    Kernel::KSession::Register(kernel, session);
+
+    auto* server = &session->GetServerSession();
     ClientConnected(server);
 
-    FileSessionSlot* slot = GetSessionData(std::move(server));
+    FileSessionSlot* slot = GetSessionData(server);
     const FileSessionSlot* original_file = GetSessionData(ctx.Session());
 
     slot->priority = original_file->priority;
@@ -390,7 +393,7 @@ void File::OpenLinkFile(Kernel::HLERequestContext& ctx) {
     slot->subfile = false;
 
     rb.Push(ResultSuccess);
-    rb.PushMoveObjects(client);
+    rb.PushMoveObjects(&session->GetClientSession());
 }
 
 void File::OpenSubFile(Kernel::HLERequestContext& ctx) {
@@ -424,40 +427,49 @@ void File::OpenSubFile(Kernel::HLERequestContext& ctx) {
 
     using Kernel::ClientSession;
     using Kernel::ServerSession;
-    auto [server, client] = kernel.CreateSessionPair(GetName());
+
+    auto* session = Kernel::KSession::Create(kernel);
+    session->Initialize(nullptr);
+    Kernel::KSession::Register(kernel, session);
+
+    auto* server = &session->GetServerSession();
     ClientConnected(server);
 
-    FileSessionSlot* slot = GetSessionData(std::move(server));
+    FileSessionSlot* slot = GetSessionData(server);
     slot->priority = original_file->priority;
     slot->offset = offset;
     slot->size = size;
     slot->subfile = true;
 
     rb.Push(ResultSuccess);
-    rb.PushMoveObjects(client);
+    rb.PushMoveObjects(&session->GetClientSession());
 }
 
-std::shared_ptr<Kernel::ClientSession> File::Connect() {
-    auto [server, client] = kernel.CreateSessionPair(GetName());
+Kernel::KClientSession* File::Connect() {
+    auto* session = Kernel::KSession::Create(kernel);
+    session->Initialize(nullptr);
+    Kernel::KSession::Register(kernel, session);
+
+    auto* server = &session->GetServerSession();
     ClientConnected(server);
 
-    FileSessionSlot* slot = GetSessionData(std::move(server));
+    FileSessionSlot* slot = GetSessionData(server);
     slot->priority = 0;
     slot->offset = 0;
     slot->size = backend->GetSize();
     slot->subfile = false;
 
-    return client;
+    return &session->GetClientSession();
 }
 
-std::size_t File::GetSessionFileOffset(std::shared_ptr<Kernel::ServerSession> session) {
-    const FileSessionSlot* slot = GetSessionData(std::move(session));
+std::size_t File::GetSessionFileOffset(Kernel::KServerSession* session) {
+    const FileSessionSlot* slot = GetSessionData(session);
     ASSERT(slot);
     return slot->offset;
 }
 
-std::size_t File::GetSessionFileSize(std::shared_ptr<Kernel::ServerSession> session) {
-    const FileSessionSlot* slot = GetSessionData(std::move(session));
+std::size_t File::GetSessionFileSize(Kernel::KServerSession* session) {
+    const FileSessionSlot* slot = GetSessionData(session);
     ASSERT(slot);
     return slot->size;
 }

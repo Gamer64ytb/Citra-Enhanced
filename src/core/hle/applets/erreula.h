@@ -5,7 +5,10 @@
 #pragma once
 
 #include "core/hle/applets/applet.h"
-#include "core/hle/kernel/shared_memory.h"
+
+namespace Kernel {
+class KSharedMemory;
+}
 
 namespace HLE::Applets {
 
@@ -24,7 +27,7 @@ private:
     /// This SharedMemory will be created when we receive the LibAppJustStarted message.
     /// It holds the framebuffer info retrieved by the application with
     /// GSPGPU::ImportDisplayCaptureInfo
-    std::shared_ptr<Kernel::SharedMemory> framebuffer_memory;
+    Kernel::KSharedMemory* framebuffer_memory;
 
     /// Parameter received by the applet on start.
     std::vector<u8> startup_param;

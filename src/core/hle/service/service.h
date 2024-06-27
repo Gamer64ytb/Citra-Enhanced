@@ -15,7 +15,6 @@
 #include "common/common_types.h"
 #include "common/construct.h"
 #include "core/hle/kernel/hle_ipc.h"
-#include "core/hle/kernel/object.h"
 #include "core/hle/service/sm/sm.h"
 
 namespace Core {
@@ -63,7 +62,7 @@ public:
     /// Creates a port pair and registers this service with the given ServiceManager.
     void InstallAsService(SM::ServiceManager& service_manager);
     /// Creates a port pair and registers it on the kernel's global port registry.
-    void InstallAsNamedPort(Kernel::KernelSystem& kernel);
+    void InstallAsNamedPort(SM::ServiceManager& service_manager, Kernel::KernelSystem& kernel);
 
     void HandleSyncRequest(Kernel::HLERequestContext& context) override;
 
@@ -164,7 +163,7 @@ protected:
         return std::make_unique<SessionData>();
     }
 
-    SessionData* GetSessionData(std::shared_ptr<Kernel::ServerSession> server_session) {
+    SessionData* GetSessionData(Kernel::KServerSession* server_session) {
         return ServiceFrameworkBase::GetSessionData<SessionData>(server_session);
     }
 

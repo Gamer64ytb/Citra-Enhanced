@@ -10,9 +10,7 @@
 #include "core/core.h"
 #include "core/hle/ipc.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/handle_table.h"
-#include "core/hle/kernel/resource_limit.h"
+#include "core/hle/kernel/k_event.h"
 #include "core/hle/result.h"
 #include "core/hle/service/ac/ac.h"
 #include "core/hle/service/ac/ac_i.h"
@@ -41,7 +39,7 @@ void Module::Interface::ConnectAsync(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
 
     rp.Skip(2, false); // ProcessId descriptor
-    ac->connect_event = rp.PopObject<Kernel::Event>();
+    ac->connect_event = rp.PopObject<Kernel::KEvent>();
     rp.Skip(2, false); // Buffer descriptor
 
     if (ac->connect_event) {
@@ -68,7 +66,7 @@ void Module::Interface::CloseAsync(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     rp.Skip(2, false); // ProcessId descriptor
 
-    ac->close_event = rp.PopObject<Kernel::Event>();
+    ac->close_event = rp.PopObject<Kernel::KEvent>();
 
     if (ac->ac_connected && ac->disconnect_event) {
         ac->disconnect_event->Signal();
@@ -144,7 +142,7 @@ void Module::Interface::RegisterDisconnectEvent(Kernel::HLERequestContext& ctx) 
     IPC::RequestParser rp(ctx);
     rp.Skip(2, false); // ProcessId descriptor
 
-    ac->disconnect_event = rp.PopObject<Kernel::Event>();
+    ac->disconnect_event = rp.PopObject<Kernel::KEvent>();
     if (ac->disconnect_event) {
         ac->disconnect_event->SetName("AC:disconnect_event");
     }

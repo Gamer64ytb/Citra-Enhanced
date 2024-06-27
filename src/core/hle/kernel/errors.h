@@ -16,6 +16,7 @@ enum {
     OutOfEvents = 15,
     OutOfTimers = 16,
     OutOfHandles = 19,
+    ProcessNotFound = 24,
     SessionClosedByRemote = 26,
     PortNameTooLong = 30,
     WrongLockingThread = 31,
@@ -109,5 +110,8 @@ constexpr Result ResultTimeout(ErrorDescription::Timeout, ErrorModule::OS,
 constexpr Result ResultNoPendingSessions(ErrCodes::NoPendingSessions, ErrorModule::OS,
                                          ErrorSummary::WouldBlock,
                                          ErrorLevel::Permanent); // 0xD8401823
+constexpr Result ResultProcessNotFound(ErrCodes::ProcessNotFound, ErrorModule::OS,
+                                       ErrorSummary::WrongArgument,
+                                       ErrorLevel::Permanent); // 0xD9001818
 
 } // namespace Kernel

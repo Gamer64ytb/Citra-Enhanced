@@ -8,7 +8,7 @@
 #include "common/logging/log.h"
 #include "core/core.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/process.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/hle/service/dsp/dsp_dsp.h"
 
 using DspPipe = AudioCore::DspPipe;
@@ -207,7 +207,7 @@ void DSP_DSP::FlushDataCache(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     [[maybe_unused]] const VAddr address = rp.Pop<u32>();
     [[maybe_unused]] const u32 size = rp.Pop<u32>();
-    const auto process = rp.PopObject<Kernel::Process>();
+    [[maybe_unused]] const auto process = rp.PopObject<Kernel::Process>();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(ResultSuccess);
@@ -220,7 +220,7 @@ void DSP_DSP::InvalidateDataCache(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     [[maybe_unused]] const VAddr address = rp.Pop<u32>();
     [[maybe_unused]] const u32 size = rp.Pop<u32>();
-    const auto process = rp.PopObject<Kernel::Process>();
+    [[maybe_unused]] const auto process = rp.PopObject<Kernel::Process>();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(ResultSuccess);
@@ -233,7 +233,7 @@ void DSP_DSP::RegisterInterruptEvents(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     const u32 interrupt = rp.Pop<u32>();
     const u32 channel = rp.Pop<u32>();
-    auto event = rp.PopObject<Kernel::Event>();
+    auto event = rp.PopObject<Kernel::KEvent>();
 
     ASSERT_MSG(interrupt < static_cast<u32>(InterruptType::Count) &&
                    channel < AudioCore::num_dsp_pipe,
@@ -254,12 +254,12 @@ void DSP_DSP::RegisterInterruptEvents(Kernel::HLERequestContext& ctx) {
                            ErrorSummary::OutOfResource, ErrorLevel::Status));
             return;
         } else {
-            GetInterruptEvent(type, pipe) = event;
+            SetInterruptEvent(type, pipe, event);
             LOG_INFO(Service_DSP, "Registered interrupt={}, channel={}, event={}", interrupt,
                      channel, event->GetName());
         }
     } else { /// Otherwise unregister event
-        GetInterruptEvent(type, pipe) = nullptr;
+        SetInterruptEvent(type, pipe, nullptr);
         LOG_INFO(Service_DSP, "Unregistered interrupt={}, channel={}", interrupt, channel);
     }
     rb.Push(ResultSuccess);
@@ -305,18 +305,14 @@ void DSP_DSP::ForceHeadphoneOut(Kernel::HLERequestContext& ctx) {
     LOG_DEBUG(Service_DSP, "(STUBBED) called, force={}", force);
 }
 
-// DSP Interrupts:
-// The audio-pipe interrupt occurs every frame tick. Userland programs normally have a thread
-// that's waiting for an interrupt event. Immediately after this interrupt event, userland
-// normally updates the state in the next region and increments the relevant frame counter by two.
 void DSP_DSP::SignalInterrupt(InterruptType type, DspPipe pipe) {
-    LOG_TRACE(Service_DSP, "called, type={}, pipe={}", type, pipe);
-    const auto& event = GetInterruptEvent(type, pipe);
-    if (event)
+    const auto event = GetInterruptEvent(type, pipe);
+    if (event) {
         event->Signal();
+    }
 }
 
-std::shared_ptr<Kernel::Event>& DSP_DSP::GetInterruptEvent(InterruptType type, DspPipe pipe) {
+Kernel::KEvent* DSP_DSP::GetInterruptEvent(InterruptType type, DspPipe pipe) {
     switch (type) {
     case InterruptType::Zero:
         return interrupt_zero;
@@ -329,9 +325,29 @@ std::shared_ptr<Kernel::Event>& DSP_DSP::GetInterruptEvent(InterruptType type, D
     }
     case InterruptType::Count:
     default:
+        UNREACHABLE_MSG("Invalid interrupt type = {}", type);
+    }
+}
+
+void DSP_DSP::SetInterruptEvent(InterruptType type, AudioCore::DspPipe pipe,
+                                Kernel::KEvent* event) {
+    switch (type) {
+    case InterruptType::Zero:
+        interrupt_zero = event;
+        break;
+    case InterruptType::One:
+        interrupt_one = event;
+        break;
+    case InterruptType::Pipe: {
+        const std::size_t pipe_index = static_cast<std::size_t>(pipe);
+        ASSERT(pipe_index < AudioCore::num_dsp_pipe);
+        pipes[pipe_index] = event;
         break;
     }
-    UNREACHABLE_MSG("Invalid interrupt type = {}", type);
+    case InterruptType::Count:
+    default:
+        UNREACHABLE_MSG("Invalid interrupt type = {}", type);
+    }
 }
 
 bool DSP_DSP::HasTooManyEventsRegistered() const {
@@ -348,7 +364,7 @@ bool DSP_DSP::HasTooManyEventsRegistered() const {
 }
 
 DSP_DSP::DSP_DSP(Core::System& system)
-    : ServiceFramework("dsp::DSP", DefaultMaxSessions), system(system) {
+    : ServiceFramework("dsp::DSP", DefaultMaxSessions), system(system), service_context(system) {
     static const FunctionInfo functions[] = {
         // clang-format off
         {0x0001, &DSP_DSP::RecvData, "RecvData"},
@@ -390,7 +406,7 @@ DSP_DSP::DSP_DSP(Core::System& system)
     RegisterHandlers(functions);
 
     semaphore_event =
-        system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "DSP_DSP::semaphore_event");
+        service_context.CreateEvent(Kernel::ResetType::OneShot, "DSP_DSP::semaphore_event");
 
     semaphore_event->SetHLENotifier(
         [this]() { this->system.DSP().SetSemaphore(preset_semaphore); });

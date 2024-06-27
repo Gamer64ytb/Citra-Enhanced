@@ -49,6 +49,14 @@ __declspec(dllimport) void __stdcall DebugBreak(void);
 #define locale_t _locale_t
 #endif // _MSC_VER
 
+#define CITRA_NON_COPYABLE(cls)                                                                    \
+    cls(const cls&) = delete;                                                                      \
+    cls& operator=(const cls&) = delete
+
+#define CITRA_NON_MOVEABLE(cls)                                                                    \
+    cls(cls&&) = delete;                                                                           \
+    cls& operator=(cls&&) = delete
+
 #define DECLARE_ENUM_FLAG_OPERATORS(type)                                                          \
     [[nodiscard]] constexpr type operator|(type a, type b) noexcept {                              \
         using T = std::underlying_type_t<type>;                                                    \

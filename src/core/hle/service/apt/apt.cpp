@@ -13,8 +13,9 @@
 #include "core/file_sys/archive_ncch.h"
 #include "core/file_sys/file_backend.h"
 #include "core/hle/applets/applet.h"
-#include "core/hle/kernel/mutex.h"
-#include "core/hle/kernel/shared_memory.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_mutex.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/romfs.h"
 #include "core/hle/service/am/am.h"
 #include "core/hle/service/apt/applet_manager.h"
@@ -41,13 +42,13 @@ namespace Service::APT {
 
 template <class Archive>
 void Module::serialize(Archive& ar, const unsigned int file_version) {
-    ar& shared_font_mem;
+    /*ar& shared_font_mem;
     ar& shared_font_loaded;
     ar& shared_font_relocated;
     ar& cpu_percent;
     ar& screen_capture_post_permission;
     ar& applet_manager;
-    ar& wireless_reboot_info;
+    ar& wireless_reboot_info;*/
 }
 
 SERIALIZE_IMPL(Module)
@@ -285,7 +286,7 @@ void Module::APTInterface::GetSharedFont(Kernel::HLERequestContext& ctx) {
             LOG_ERROR(Service_APT, "shared font file missing - go dump it from your 3ds");
             rb.Push<u32>(-1); // TODO: Find the right error code
             rb.Push<u32>(0);
-            rb.PushCopyObjects<Kernel::Object>(nullptr);
+            rb.PushCopyObjects<Kernel::KAutoObject>(nullptr);
             apt->system.SetStatus(Core::System::ResultStatus::ErrorSystemFiles, "Shared fonts");
             return;
         }
@@ -1446,15 +1447,14 @@ std::shared_ptr<Module> Module::APTInterface::GetModule() const {
     return apt;
 }
 
-Module::Module(Core::System& system) : system(system) {
+Module::Module(Core::System& system) : system(system), service_context(system) {
     applet_manager = std::make_shared<AppletManager>(system);
 
     using Kernel::MemoryPermission;
-    shared_font_mem = system.Kernel()
-                          .CreateSharedMemory(nullptr, 0x332000, // 3272 KB
-                                              MemoryPermission::ReadWrite, MemoryPermission::Read,
-                                              0, Kernel::MemoryRegion::SYSTEM, "APT:SharedFont")
-                          .Unwrap();
+    shared_font_mem =
+        service_context.CreateSharedMemory(0x332000, // 3272 KB
+                                           MemoryPermission::ReadWrite, MemoryPermission::Read, 0,
+                                           Kernel::MemoryRegion::SYSTEM, "APT:SharedFont");
 }
 
 Module::~Module() {}

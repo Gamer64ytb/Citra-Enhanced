@@ -17,9 +17,9 @@
 #include "core/file_sys/romfs_reader.h"
 #include "core/file_sys/secure_value_backend_artic.h"
 #include "core/file_sys/title_metadata.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_resource_limit.h"
 #include "core/hle/kernel/kernel.h"
-#include "core/hle/kernel/process.h"
-#include "core/hle/kernel/resource_limit.h"
 #include "core/hle/service/am/am.h"
 #include "core/hle/service/cfg/cfg.h"
 #include "core/hle/service/fs/archive.h"
@@ -105,7 +105,7 @@ Apploader_Artic::LoadNew3dsHwCapabilities() {
     return std::make_pair(std::move(caps), ResultStatus::Success);
 }
 
-ResultStatus Apploader_Artic::LoadExec(std::shared_ptr<Kernel::Process>& process) {
+ResultStatus Apploader_Artic::LoadExec(Kernel::Process** out_process) {
     using Kernel::CodeSet;
 
     if (!is_loaded)
@@ -119,17 +119,27 @@ ResultStatus Apploader_Artic::LoadExec(std::shared_ptr<Kernel::Process>& process
         std::string process_name = Common::StringFromFixedZeroTerminatedBuffer(
             (const char*)program_exheader.codeset_info.name, 8);
 
-        std::shared_ptr<CodeSet> codeset = system.Kernel().CreateCodeSet(process_name, program_id);
+        // Create the process
+        auto& kernel = system.Kernel();
+        auto* process = Kernel::Process::Create(kernel);
 
-        codeset->CodeSegment().offset = 0;
-        codeset->CodeSegment().addr = program_exheader.codeset_info.text.address;
-        codeset->CodeSegment().size =
+        // Register the process.
+        process->Initialize();
+        Kernel::Process::Register(kernel, process);
+
+        // Initialize process codeset
+        auto& codeset = process->codeset;
+        codeset.name = process_name;
+        codeset.program_id = program_id;
+
+        codeset.CodeSegment().offset = 0;
+        codeset.CodeSegment().addr = program_exheader.codeset_info.text.address;
+        codeset.CodeSegment().size =
             program_exheader.codeset_info.text.num_max_pages * Memory::CITRA_PAGE_SIZE;
 
-        codeset->RODataSegment().offset =
-            codeset->CodeSegment().offset + codeset->CodeSegment().size;
-        codeset->RODataSegment().addr = program_exheader.codeset_info.ro.address;
-        codeset->RODataSegment().size =
+        codeset.RODataSegment().offset = codeset.CodeSegment().offset + codeset.CodeSegment().size;
+        codeset.RODataSegment().addr = program_exheader.codeset_info.ro.address;
+        codeset.RODataSegment().size =
             program_exheader.codeset_info.ro.num_max_pages * Memory::CITRA_PAGE_SIZE;
 
         // TODO(yuriks): Not sure if the bss size is added to the page-aligned .data size or just
@@ -137,10 +147,10 @@ ResultStatus Apploader_Artic::LoadExec(std::shared_ptr<Kernel::Process>& process
         u32 bss_page_size = (program_exheader.codeset_info.bss_size + 0xFFF) & ~0xFFF;
         code.resize(code.size() + bss_page_size, 0);
 
-        codeset->DataSegment().offset =
-            codeset->RODataSegment().offset + codeset->RODataSegment().size;
-        codeset->DataSegment().addr = program_exheader.codeset_info.data.address;
-        codeset->DataSegment().size =
+        codeset.DataSegment().offset =
+            codeset.RODataSegment().offset + codeset.RODataSegment().size;
+        codeset.DataSegment().addr = program_exheader.codeset_info.data.address;
+        codeset.DataSegment().size =
             program_exheader.codeset_info.data.num_max_pages * Memory::CITRA_PAGE_SIZE +
             bss_page_size;
 
@@ -149,15 +159,13 @@ ResultStatus Apploader_Artic::LoadExec(std::shared_ptr<Kernel::Process>& process
         // if (patch_result != ResultStatus::Success && patch_result != ResultStatus::ErrorNotUsed)
         //    return patch_result;
 
-        codeset->entrypoint = codeset->CodeSegment().addr;
-        codeset->memory = std::move(code);
-
-        process = system.Kernel().CreateProcess(std::move(codeset));
+        codeset.entrypoint = codeset.CodeSegment().addr;
+        codeset.memory = std::move(code);
 
         // Attach a resource limit to the process based on the resource limit category
         const auto category = static_cast<Kernel::ResourceLimitCategory>(
             program_exheader.arm11_system_local_caps.resource_limit_category);
-        process->resource_limit = system.Kernel().ResourceLimit().GetForCategory(category);
+        process->resource_limit = kernel.ResourceLimit().GetForCategory(category);
 
         // When running N3DS-unaware titles pm will lie about the amount of memory available.
         // This means RESLIMIT_COMMIT = APPMEMALLOC doesn't correspond to the actual size of
@@ -202,7 +210,7 @@ ResultStatus Apploader_Artic::LoadExec(std::shared_ptr<Kernel::Process>& process
 
         // On real HW this is done with FS:Reg, but we can be lazy
         auto fs_user = system.ServiceManager().GetService<Service::FS::FS_USER>("fs:USER");
-        fs_user->RegisterProgramInfo(process->process_id, process->codeset->program_id,
+        fs_user->RegisterProgramInfo(process->process_id, process->codeset.program_id,
                                      "articbase://");
 
         Service::FS::FS_USER::ProductInfo product_info{};
@@ -212,6 +220,7 @@ ResultStatus Apploader_Artic::LoadExec(std::shared_ptr<Kernel::Process>& process
         fs_user->RegisterProductInfo(process->process_id, product_info);
 
         process->Run(priority, stack_size);
+        *out_process = process;
         return ResultStatus::Success;
     }
     return ResultStatus::ErrorArtic;
@@ -303,7 +312,7 @@ ResultStatus Apploader_Artic::LoadProductInfo(Service::FS::FS_USER::ProductInfo&
     return ResultStatus::Success;
 }
 
-ResultStatus Apploader_Artic::Load(std::shared_ptr<Kernel::Process>& process) {
+ResultStatus Apploader_Artic::Load(Kernel::Process** process) {
     u64_le ncch_program_id;
 
     if (is_loaded)

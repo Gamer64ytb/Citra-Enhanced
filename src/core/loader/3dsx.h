@@ -29,7 +29,7 @@ public:
         return IdentifyType(file);
     }
 
-    ResultStatus Load(std::shared_ptr<Kernel::Process>& process) override;
+    ResultStatus Load(Kernel::Process** out_process) override;
 
     ResultStatus ReadIcon(std::vector<u8>& buffer) override;
 

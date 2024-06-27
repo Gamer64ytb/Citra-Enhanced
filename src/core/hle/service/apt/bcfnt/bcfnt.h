@@ -6,7 +6,7 @@
 
 #include <memory>
 #include "common/swap.h"
-#include "core/hle/kernel/shared_memory.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/service/service.h"
 
 namespace Service::APT::BCFNT { ///< BCFNT Shared Font file structures
@@ -84,6 +84,6 @@ struct CWDH {
  * @param shared_font SharedMemory object that contains the Shared Font
  * @param new_address New base for the offsets in the structure.
  */
-void RelocateSharedFont(std::shared_ptr<Kernel::SharedMemory> shared_font, VAddr new_address);
+void RelocateSharedFont(Kernel::KSharedMemory* shared_font, VAddr new_address);
 
 } // namespace Service::APT::BCFNT

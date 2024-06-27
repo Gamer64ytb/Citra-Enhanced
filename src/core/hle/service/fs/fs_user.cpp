@@ -16,11 +16,10 @@
 #include "core/file_sys/seed_db.h"
 #include "core/hle/ipc.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/client_port.h"
-#include "core/hle/kernel/client_session.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/process.h"
-#include "core/hle/kernel/server_session.h"
+#include "core/hle/kernel/k_client_port.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_session.h"
 #include "core/hle/result.h"
 #include "core/hle/service/am/am.h"
 #include "core/hle/service/fs/archive.h"
@@ -40,7 +39,7 @@ void FS_USER::Initialize(Kernel::HLERequestContext& ctx) {
     u32 pid = rp.PopPID();
 
     ClientSlot* slot = GetSessionData(ctx.Session());
-    slot->program_id = system.Kernel().GetProcessById(pid)->codeset->program_id;
+    slot->program_id = system.Kernel().GetProcessById(pid)->codeset.program_id;
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(ResultSuccess);
@@ -70,7 +69,7 @@ void FS_USER::OpenFile(Kernel::HLERequestContext& ctx) {
             std::shared_ptr<File> file = *file_res;
             rb.PushMoveObjects(file->Connect());
         } else {
-            rb.PushMoveObjects<Kernel::Object>(nullptr);
+            rb.PushMoveObjects<Kernel::KAutoObject>(nullptr);
             LOG_DEBUG(Service_FS, "failed to get a handle for file {}", file_path.DebugStr());
         }
 
@@ -114,7 +113,7 @@ void FS_USER::OpenFile(Kernel::HLERequestContext& ctx) {
                 std::shared_ptr<File> file = *async_data->file.first;
                 rb.PushMoveObjects(file->Connect());
             } else {
-                rb.PushMoveObjects<Kernel::Object>(nullptr);
+                rb.PushMoveObjects<Kernel::KAutoObject>(nullptr);
                 LOG_DEBUG(Service_FS, "failed to get a handle for file {}",
                           async_data->file_path.DebugStr());
             }
@@ -155,7 +154,7 @@ void FS_USER::OpenFileDirectly(Kernel::HLERequestContext& ctx) {
                       "Failed to get a handle for archive archive_id=0x{:08X} archive_path={}",
                       archive_id, archive_path.DebugStr());
             rb.Push(archive_handle.Code());
-            rb.PushMoveObjects<Kernel::Object>(nullptr);
+            rb.PushMoveObjects<Kernel::KAutoObject>(nullptr);
             return;
         }
         SCOPE_EXIT({ archives.CloseArchive(*archive_handle); });
@@ -167,7 +166,7 @@ void FS_USER::OpenFileDirectly(Kernel::HLERequestContext& ctx) {
             std::shared_ptr<File> file = *file_res;
             rb.PushMoveObjects(file->Connect());
         } else {
-            rb.PushMoveObjects<Kernel::Object>(nullptr);
+            rb.PushMoveObjects<Kernel::KAutoObject>(nullptr);
             LOG_DEBUG(Service_FS, "failed to get a handle for file {} mode={} attributes={}",
                       file_path.DebugStr(), mode.hex, attributes);
         }
@@ -223,7 +222,7 @@ void FS_USER::OpenFileDirectly(Kernel::HLERequestContext& ctx) {
 
             if (async_data->archive_handle.Failed()) {
                 rb.Push(async_data->archive_handle.Code());
-                rb.PushMoveObjects<Kernel::Object>(nullptr);
+                rb.PushMoveObjects<Kernel::KAutoObject>(nullptr);
             }
 
             rb.Push(async_data->file.first.Code());
@@ -231,7 +230,7 @@ void FS_USER::OpenFileDirectly(Kernel::HLERequestContext& ctx) {
                 std::shared_ptr<File> file = *async_data->file.first;
                 rb.PushMoveObjects(file->Connect());
             } else {
-                rb.PushMoveObjects<Kernel::Object>(nullptr);
+                rb.PushMoveObjects<Kernel::KAutoObject>(nullptr);
                 LOG_DEBUG(Service_FS, "failed to get a handle for file {}",
                           async_data->file_path.DebugStr());
             }
@@ -603,13 +602,13 @@ void FS_USER::OpenDirectory(Kernel::HLERequestContext& ctx) {
         rb.Push(dir_res.Code());
         if (dir_res.Succeeded()) {
             std::shared_ptr<Directory> directory = *dir_res;
-            auto [server, client] = system.Kernel().CreateSessionPair(directory->GetName());
-            directory->ClientConnected(server);
-            rb.PushMoveObjects(client);
+            auto* session = service_context.CreateSession(directory->GetName());
+            directory->ClientConnected(&session->GetServerSession());
+            rb.PushMoveObjects(&session->GetClientSession());
         } else {
             LOG_DEBUG(Service_FS, "failed to get a handle for directory type={} size={} data={}",
                       dirname_type, dirname_size, dir_path.DebugStr());
-            rb.PushMoveObjects<Kernel::Object>(nullptr);
+            rb.PushMoveObjects<Kernel::KAutoObject>(nullptr);
         }
         return;
     }
@@ -636,13 +635,13 @@ void FS_USER::OpenDirectory(Kernel::HLERequestContext& ctx) {
             rb.Push(async_data->dir_res.Code());
             if (async_data->dir_res.Succeeded()) {
                 std::shared_ptr<Directory> directory = *async_data->dir_res;
-                auto [server, client] = system.Kernel().CreateSessionPair(directory->GetName());
-                directory->ClientConnected(server);
-                rb.PushMoveObjects(client);
+                auto* session = service_context.CreateSession(directory->GetName());
+                directory->ClientConnected(&session->GetServerSession());
+                rb.PushMoveObjects(&session->GetClientSession());
             } else {
                 LOG_DEBUG(Service_FS, "failed to get a handle for directory path={}",
                           async_data->dir_path.DebugStr());
-                rb.PushMoveObjects<Kernel::Object>(nullptr);
+                rb.PushMoveObjects<Kernel::KAutoObject>(nullptr);
             }
         },
         true);
@@ -1057,7 +1056,7 @@ void FS_USER::InitializeWithSdkVersion(Kernel::HLERequestContext& ctx) {
     u32 pid = rp.PopPID();
 
     ClientSlot* slot = GetSessionData(ctx.Session());
-    slot->program_id = system.Kernel().GetProcessById(pid)->codeset->program_id;
+    slot->program_id = system.Kernel().GetProcessById(pid)->codeset.program_id;
 
     LOG_WARNING(Service_FS, "(STUBBED) called, version: 0x{:08X}", version);
 
@@ -1179,8 +1178,8 @@ void FS_USER::GetProgramLaunchInfo(Kernel::HLERequestContext& ctx) {
     // information and the media type is game card. Otherwise, friends will append a "romid" field
     // to the NASC request with a cartridge unique identifier. Using a dump of a game card and the
     // game card itself at the same time online is known to have caused issues in the past.
-    auto process = ctx.ClientThread()->owner_process.lock();
-    if (process && process->codeset->name == "friends" &&
+    auto process = ctx.ClientThread()->GetOwner();
+    if (process && process->codeset.name == "friends" &&
         program_info.media_type == MediaType::GameCard) {
         program_info.media_type = MediaType::SDMC;
     }
@@ -1648,7 +1647,8 @@ ResultVal<u16> FS_USER::GetSpecialContentIndexFromTMD(MediaType media_type, u64 
 }
 
 FS_USER::FS_USER(Core::System& system)
-    : ServiceFramework("fs:USER", 30), system(system), archives(system.ArchiveManager()) {
+    : ServiceFramework("fs:USER", 30), system(system), service_context(system),
+      archives(system.ArchiveManager()) {
     static const FunctionInfo functions[] = {
         // clang-format off
         {0x0001, nullptr, "Dummy1"},

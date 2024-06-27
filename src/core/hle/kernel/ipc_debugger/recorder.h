@@ -15,8 +15,9 @@
 #include "common/common_types.h"
 
 namespace Kernel {
-class ClientSession;
-class Thread;
+class KClientSession;
+class KThread;
+enum class ClassTokenType : u32;
 } // namespace Kernel
 
 namespace IPCDebugger {
@@ -27,7 +28,7 @@ namespace IPCDebugger {
 struct ObjectInfo {
     std::string type;
     std::string name;
-    int id = -1;
+    int id;
 };
 
 /**
@@ -80,28 +81,28 @@ public:
     /**
      * Registers a request into the recorder. The request is then assoicated with the client thread.
      */
-    void RegisterRequest(const std::shared_ptr<Kernel::ClientSession>& client_session,
-                         const std::shared_ptr<Kernel::Thread>& client_thread);
+    void RegisterRequest(const Kernel::KClientSession* client_session,
+                         const Kernel::KThread* client_thread);
 
     /**
      * Sets the request information of the request record associated with the client thread.
      * When the server thread is empty, the request will be considered HLE.
      */
-    void SetRequestInfo(const std::shared_ptr<Kernel::Thread>& client_thread,
-                        std::vector<u32> untranslated_cmdbuf, std::vector<u32> translated_cmdbuf,
-                        const std::shared_ptr<Kernel::Thread>& server_thread = {});
+    void SetRequestInfo(const Kernel::KThread* client_thread, std::vector<u32> untranslated_cmdbuf,
+                        std::vector<u32> translated_cmdbuf,
+                        const Kernel::KThread* server_thread = nullptr);
 
     /**
      * Sets the reply information of the request record assoicated with the client thread.
      * The request is then unlinked from the client thread.
      */
-    void SetReplyInfo(const std::shared_ptr<Kernel::Thread>& client_thread,
-                      std::vector<u32> untranslated_cmdbuf, std::vector<u32> translated_cmdbuf);
+    void SetReplyInfo(const Kernel::KThread* client_thread, std::vector<u32> untranslated_cmdbuf,
+                      std::vector<u32> translated_cmdbuf);
 
     /**
      * Set the status of a record to HLEUnimplemented.
      */
-    void SetHLEUnimplemented(const std::shared_ptr<Kernel::Thread>& client_thread);
+    void SetHLEUnimplemented(const Kernel::KThread* client_thread);
 
     /**
      * Set the status of the debugger (enabled/disabled).
@@ -118,7 +119,7 @@ private:
     int record_count{};
 
     // Temporary client session map for function name handling
-    std::unordered_map<u32, std::shared_ptr<Kernel::ClientSession>> client_session_map;
+    std::unordered_map<u32, const Kernel::KClientSession*> client_session_map;
 
     std::atomic_bool enabled{false};
 

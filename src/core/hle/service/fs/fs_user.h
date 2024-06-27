@@ -11,6 +11,7 @@
 #include "core/file_sys/errors.h"
 #include "core/file_sys/secure_value_backend.h"
 #include "core/hle/service/fs/archive.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -740,6 +741,7 @@ private:
     u32 priority = -1; ///< For SetPriority and GetPriority service functions
 
     Core::System& system;
+    KernelHelpers::ServiceContext service_context;
     ArchiveManager& archives;
 
     std::shared_ptr<FileSys::SecureValueBackend> secure_value_backend;

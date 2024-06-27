@@ -17,7 +17,7 @@
 #include "core/arm/arm_interface.h"
 #include "core/core.h"
 #include "core/global.h"
-#include "core/hle/kernel/process.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/hle/service/plgldr/plgldr.h"
 #include "core/memory.h"
 #include "video_core/gpu.h"

@@ -16,6 +16,7 @@
 #include "common/settings.h"
 #include "core/core_timing.h"
 #include "core/frontend/input.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -312,16 +313,17 @@ private:
     void UpdateGyroscopeCallback(std::uintptr_t user_data, s64 cycles_late);
 
     Core::System& system;
+    KernelHelpers::ServiceContext service_context;
 
     // Handle to shared memory region designated to HID_User service
-    std::shared_ptr<Kernel::SharedMemory> shared_mem;
+    Kernel::KSharedMemory* shared_mem;
 
     // Event handles
-    std::shared_ptr<Kernel::Event> event_pad_or_touch_1;
-    std::shared_ptr<Kernel::Event> event_pad_or_touch_2;
-    std::shared_ptr<Kernel::Event> event_accelerometer;
-    std::shared_ptr<Kernel::Event> event_gyroscope;
-    std::shared_ptr<Kernel::Event> event_debug_pad;
+    Kernel::KEvent* event_pad_or_touch_1;
+    Kernel::KEvent* event_pad_or_touch_2;
+    Kernel::KEvent* event_accelerometer;
+    Kernel::KEvent* event_gyroscope;
+    Kernel::KEvent* event_debug_pad;
 
     // The HID module of a 3DS does not store the PadState.
     // Storing this here was necessary for emulation specific tasks like cheats or scripting.

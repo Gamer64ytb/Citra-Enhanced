@@ -27,8 +27,8 @@
 #include "core/core.h"
 #include "core/file_sys/plugin_3gx.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/handle_table.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_handle_table.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/service/plgldr/plgldr.h"
 #include "core/loader/loader.h"
@@ -40,7 +40,8 @@ namespace Service::PLGLDR {
 
 static const Kernel::CoreVersion plgldr_version = Kernel::CoreVersion(1, 0, 0);
 
-PLG_LDR::PLG_LDR(Core::System& system_) : ServiceFramework{"plg:ldr", 1}, system(system_) {
+PLG_LDR::PLG_LDR(Core::System& system_)
+    : ServiceFramework{"plg:ldr", 1}, system(system_), service_context(system) {
     static const FunctionInfo functions[] = {
         // clang-format off
         {0x0001, nullptr, "LoadPlugin"},
@@ -97,8 +98,8 @@ void PLG_LDR::OnProcessRun(Kernel::Process& process, Kernel::KernelSystem& kerne
     {
         // Same check as original plugin loader, plugins are not supported in homebrew apps
         u32 value1, value2;
-        kernel.memory.ReadBlock(process, process.codeset->CodeSegment().addr, &value1, 4);
-        kernel.memory.ReadBlock(process, process.codeset->CodeSegment().addr + 32, &value2, 4);
+        kernel.memory.ReadBlock(process, process.codeset.CodeSegment().addr, &value1, 4);
+        kernel.memory.ReadBlock(process, process.codeset.CodeSegment().addr + 32, &value2, 4);
         // Check for "B #0x20" and "MOV R4, LR" instructions
         bool is_homebrew = u32_le(value1) == 0xEA000006 && u32_le(value2) == 0xE1A0400E;
         if (is_homebrew) {
@@ -108,7 +109,7 @@ void PLG_LDR::OnProcessRun(Kernel::Process& process, Kernel::KernelSystem& kerne
     FileSys::Plugin3GXLoader plugin_loader;
     if (plgldr_context.use_user_load_parameters &&
         plgldr_context.user_load_parameters.low_title_Id ==
-            static_cast<u32>(process.codeset->program_id) &&
+            static_cast<u32>(process.codeset.program_id) &&
         plgldr_context.user_load_parameters.path[0]) {
         std::string plugin_file = FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir) +
                                   std::string(plgldr_context.user_load_parameters.path + 1);
@@ -119,7 +120,7 @@ void PLG_LDR::OnProcessRun(Kernel::Process& process, Kernel::KernelSystem& kerne
         const std::string plugin_root =
             FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir) + "luma/plugins/";
         const std::string plugin_tid =
-            plugin_root + fmt::format("{:016X}", process.codeset->program_id);
+            plugin_root + fmt::format("{:016X}", process.codeset.program_id);
         FileUtil::FSTEntry entry;
         FileUtil::ScanDirectoryTree(plugin_tid, entry);
         for (const auto& child : entry.children) {
@@ -157,11 +158,11 @@ ResultVal<Kernel::Handle> PLG_LDR::GetMemoryChangedHandle(Kernel::KernelSystem& 
         return plgldr_context.memory_changed_handle;
     }
 
-    std::shared_ptr<Kernel::Event> evt =
-        kernel.CreateEvent(Kernel::ResetType::OneShot,
-                           fmt::format("event-{:08x}", system.GetRunningCore().GetReg(14)));
-    R_TRY(kernel.GetCurrentProcess()->handle_table.Create(
-        std::addressof(plgldr_context.memory_changed_handle), std::move(evt)));
+    Kernel::KEvent* event =
+        service_context.CreateEvent(Kernel::ResetType::OneShot, "PLG_LDR::MemoryChangedEvent");
+
+    auto& handle_table = kernel.GetCurrentProcess()->handle_table;
+    R_TRY(handle_table.Add(std::addressof(plgldr_context.memory_changed_handle), event));
     return plgldr_context.memory_changed_handle;
 }
 
@@ -170,13 +171,13 @@ void PLG_LDR::OnMemoryChanged(Kernel::Process& process, Kernel::KernelSystem& ke
         return;
     }
 
-    std::shared_ptr<Kernel::Event> evt =
-        kernel.GetCurrentProcess()->handle_table.Get<Kernel::Event>(
-            plgldr_context.memory_changed_handle);
-    if (evt == nullptr)
+    const auto& handle_table = kernel.GetCurrentProcess()->handle_table;
+    auto event = handle_table.GetObject<Kernel::KEvent>(plgldr_context.memory_changed_handle);
+    if (event.IsNull()) {
         return;
+    }
 
-    evt->Signal();
+    event->Signal();
 }
 
 void PLG_LDR::IsEnabled(Kernel::HLERequestContext& ctx) {
@@ -293,14 +294,15 @@ void PLG_LDR::GetPluginPath(Kernel::HLERequestContext& ctx) {
 std::shared_ptr<PLG_LDR> GetService(Core::System& system) {
     if (!system.KernelRunning())
         return nullptr;
-    auto it = system.Kernel().named_ports.find("plg:ldr");
+    /*auto it = system.Kernel().named_ports.find("plg:ldr");
     if (it != system.Kernel().named_ports.end())
-        return std::static_pointer_cast<PLG_LDR>(it->second->GetServerPort()->hle_handler);
+        return std::static_pointer_cast<PLG_LDR>(it->second->GetServerPort()->hle_handler);*/
     return nullptr;
 }
 
 void InstallInterfaces(Core::System& system) {
-    std::make_shared<PLG_LDR>(system)->InstallAsNamedPort(system.Kernel());
+    auto& service_manager = system.ServiceManager();
+    std::make_shared<PLG_LDR>(system)->InstallAsNamedPort(service_manager, system.Kernel());
 }
 
 } // namespace Service::PLGLDR

@@ -51,15 +51,15 @@ public:
     std::unique_ptr<FileSys::FileBackend> backend; ///< File backend interface
 
     /// Creates a new session to this File and returns the ClientSession part of the connection.
-    std::shared_ptr<Kernel::ClientSession> Connect();
+    Kernel::KClientSession* Connect();
 
     // Returns the start offset of an open file represented by the input session, opened with
     // OpenSubFile.
-    std::size_t GetSessionFileOffset(std::shared_ptr<Kernel::ServerSession> session);
+    std::size_t GetSessionFileOffset(Kernel::KServerSession* session);
 
     // Returns the size of an open file represented by the input session, opened with
     // OpenSubFile.
-    std::size_t GetSessionFileSize(std::shared_ptr<Kernel::ServerSession> session);
+    std::size_t GetSessionFileSize(Kernel::KServerSession* session);
 
 private:
     void Read(Kernel::HLERequestContext& ctx);

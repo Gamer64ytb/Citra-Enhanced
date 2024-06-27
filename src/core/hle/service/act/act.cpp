@@ -4,7 +4,7 @@
 
 #include "core/core.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/shared_memory.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/service/act/act.h"
 #include "core/hle/service/act/act_a.h"
 #include "core/hle/service/act/act_u.h"
@@ -21,7 +21,7 @@ void Module::Interface::Initialize(Kernel::HLERequestContext& ctx) {
     const auto sdk_version = rp.Pop<u32>();
     const auto shared_memory_size = rp.Pop<u32>();
     const auto caller_pid = rp.PopPID();
-    [[maybe_unused]] const auto shared_memory = rp.PopObject<Kernel::SharedMemory>();
+    [[maybe_unused]] const auto shared_memory = rp.PopObject<Kernel::KSharedMemory>();
 
     LOG_DEBUG(Service_ACT,
               "(STUBBED) called sdk_version={:08X}, shared_memory_size={:08X}, caller_pid={}",

@@ -6,7 +6,7 @@
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/hle/kernel/errors.h"
-#include "core/hle/kernel/process.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/vm_manager.h"
 #include "core/memory.h"
 

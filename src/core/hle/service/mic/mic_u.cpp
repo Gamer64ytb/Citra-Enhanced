@@ -12,10 +12,10 @@
 #include "core/core.h"
 #include "core/hle/ipc.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/handle_table.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/kernel/kernel.h"
-#include "core/hle/kernel/shared_memory.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/mic/mic_u.h"
 
 SERVICE_CONSTRUCT_IMPL(Service::MIC::MIC_U)
@@ -68,7 +68,7 @@ constexpr u64 GetBufferUpdatePeriod(SampleRate sample_rate) {
 
 // Variables holding the current mic buffer writing state
 struct State {
-    std::weak_ptr<Kernel::SharedMemory> memory_ref{};
+    Kernel::KSharedMemory* memory_ref{};
     u8* sharedmem_buffer = nullptr;
     u32 sharedmem_size = 0;
     std::size_t size = 0;
@@ -117,9 +117,7 @@ struct State {
 private:
     template <class Archive>
     void serialize(Archive& ar, const unsigned int) {
-        std::shared_ptr<Kernel::SharedMemory> _memory_ref = memory_ref.lock();
-        ar& _memory_ref;
-        memory_ref = _memory_ref;
+        ar& memory_ref;
         ar& sharedmem_size;
         ar& size;
         ar& offset;
@@ -129,15 +127,16 @@ private:
         ar& gain;
         ar& power;
         ar& sample_rate;
-        sharedmem_buffer = _memory_ref ? _memory_ref->GetPointer() : nullptr;
+        sharedmem_buffer = memory_ref ? memory_ref->GetPointer() : nullptr;
     }
     friend class boost::serialization::access;
 };
 
 struct MIC_U::Impl {
-    explicit Impl(Core::System& system) : system(system), timing(system.CoreTiming()) {
+    explicit Impl(Core::System& system)
+        : system(system), timing(system.CoreTiming()), service_context(system) {
         buffer_full_event =
-            system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "MIC_U::buffer_full_event");
+            service_context.CreateEvent(Kernel::ResetType::OneShot, "MIC_U::buffer_full_event");
         buffer_write_event = timing.RegisterEvent(
             "MIC_U::UpdateBuffer", [this](std::uintptr_t user_data, s64 cycles_late) {
                 UpdateSharedMemBuffer(user_data, cycles_late);
@@ -147,7 +146,7 @@ struct MIC_U::Impl {
     void MapSharedMem(Kernel::HLERequestContext& ctx) {
         IPC::RequestParser rp(ctx);
         const u32 size = rp.Pop<u32>();
-        shared_memory = rp.PopObject<Kernel::SharedMemory>();
+        shared_memory = rp.PopObject<Kernel::KSharedMemory>();
 
         if (shared_memory) {
             shared_memory->SetName("MIC_U:shared_memory");
@@ -385,22 +384,23 @@ struct MIC_U::Impl {
     }
 
     std::atomic<bool> change_mic_impl_requested = false;
-    std::shared_ptr<Kernel::Event> buffer_full_event;
+    Kernel::KEvent* buffer_full_event;
     Core::TimingEventType* buffer_write_event = nullptr;
-    std::shared_ptr<Kernel::SharedMemory> shared_memory;
+    Kernel::KSharedMemory* shared_memory;
     u32 client_version = 0;
     bool allow_shell_closed = false;
     bool clamp = false;
     std::unique_ptr<AudioCore::Input> mic;
     Core::System& system;
     Core::Timing& timing;
+    KernelHelpers::ServiceContext service_context;
     State state{};
     Encoding encoding{};
 
 private:
     template <class Archive>
     void serialize(Archive& ar, const unsigned int file_version) {
-        ar& change_mic_impl_requested;
+        // ar& change_mic_impl_requested;
         ar& buffer_full_event;
         // buffer_write_event set in constructor
         ar& shared_memory;

@@ -301,8 +301,8 @@ void ARM_Dynarmic::SetPageTable(const std::shared_ptr<Memory::PageTable>& page_t
 }
 
 void ARM_Dynarmic::ServeBreak() {
-    Kernel::Thread* thread = system.Kernel().GetCurrentThreadManager().GetCurrentThread();
-    SaveContext(thread->context);
+    Kernel::KThread* thread = system.Kernel().GetCurrentThreadManager().GetCurrentThread();
+    SaveContext(thread->GetContext());
     GDBStub::Break();
     GDBStub::SendTrap(thread, 5);
 }

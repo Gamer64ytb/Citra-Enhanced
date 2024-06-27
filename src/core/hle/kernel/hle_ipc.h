@@ -17,8 +17,8 @@
 #include "common/serialization/boost_small_vector.hpp"
 #include "common/swap.h"
 #include "core/hle/ipc.h"
-#include "core/hle/kernel/object.h"
-#include "core/hle/kernel/server_session.h"
+#include "core/hle/kernel/k_server_session.h"
+#include "core/hle/kernel/k_thread.h"
 
 namespace Service {
 class ServiceFrameworkBase;
@@ -32,8 +32,8 @@ namespace Kernel {
 
 class HandleTable;
 class Process;
-class Thread;
-class Event;
+class KThread;
+class KEvent;
 class HLERequestContext;
 class KernelSystem;
 
@@ -58,14 +58,14 @@ public:
      * associated ServerSession alive for the duration of the connection.
      * @param server_session Owning pointer to the ServerSession associated with the connection.
      */
-    virtual void ClientConnected(std::shared_ptr<ServerSession> server_session);
+    virtual void ClientConnected(KServerSession* server_session);
 
     /**
      * Signals that a client has just disconnected from this HLE handler and releases the
      * associated ServerSession.
      * @param server_session ServerSession associated with the connection.
      */
-    virtual void ClientDisconnected(std::shared_ptr<ServerSession> server_session);
+    virtual void ClientDisconnected(KServerSession* server_session);
 
     /// Empty placeholder structure for services with no per-session data. The session data classes
     /// in each service must inherit from this.
@@ -79,9 +79,9 @@ public:
     };
 
     struct SessionInfo {
-        SessionInfo(std::shared_ptr<ServerSession> session, std::unique_ptr<SessionDataBase> data);
+        SessionInfo(KServerSession* session, std::unique_ptr<SessionDataBase> data);
 
-        std::shared_ptr<ServerSession> session;
+        KServerSession* session;
         std::unique_ptr<SessionDataBase> data;
 
     private:
@@ -97,7 +97,7 @@ protected:
 
     /// Returns the session data associated with the server session.
     template <typename T>
-    T* GetSessionData(std::shared_ptr<ServerSession> session) {
+    T* GetSessionData(KServerSession* session) {
         static_assert(std::is_base_of<SessionDataBase, T>(),
                       "T is not a subclass of SessionDataBase");
         auto itr = std::find_if(connected_sessions.begin(), connected_sessions.end(),
@@ -120,8 +120,8 @@ private:
 
 class MappedBuffer {
 public:
-    MappedBuffer(Memory::MemorySystem& memory, std::shared_ptr<Process> process, u32 descriptor,
-                 VAddr address, u32 id);
+    MappedBuffer(Memory::MemorySystem& memory, Process* process, u32 descriptor, VAddr address,
+                 u32 id);
 
     // interface for service
     void Read(void* dest_buffer, std::size_t offset, std::size_t size);
@@ -144,7 +144,7 @@ private:
     Memory::MemorySystem* memory;
     u32 id;
     VAddr address;
-    std::shared_ptr<Process> process;
+    Process* process;
     u32 size;
     IPC::MappedBufferPermissions perms;
 
@@ -192,8 +192,7 @@ private:
  */
 class HLERequestContext : public std::enable_shared_from_this<HLERequestContext> {
 public:
-    HLERequestContext(KernelSystem& kernel, std::shared_ptr<ServerSession> session,
-                      std::shared_ptr<Thread> thread);
+    explicit HLERequestContext(KernelSystem& kernel, KServerSession* session, KThread* thread);
     ~HLERequestContext();
 
     /// Returns a pointer to the IPC command buffer for this request.
@@ -215,21 +214,21 @@ public:
      * Returns the session through which this request was made. This can be used as a map key to
      * access per-client data on services.
      */
-    std::shared_ptr<ServerSession> Session() const {
+    KServerSession* Session() const {
         return session;
     }
 
     /**
      * Returns the client thread that made the service request.
      */
-    std::shared_ptr<Thread> ClientThread() const {
+    KThread* ClientThread() const {
         return thread;
     }
 
     class WakeupCallback {
     public:
         virtual ~WakeupCallback() = default;
-        virtual void WakeUp(std::shared_ptr<Thread> thread, HLERequestContext& context,
+        virtual void WakeUp(KThread* thread, HLERequestContext& context,
                             ThreadWakeupReason reason) = 0;
 
     private:
@@ -249,9 +248,8 @@ public:
      * was called.
      * @returns Event that when signaled will resume the thread and call the callback function.
      */
-    std::shared_ptr<Event> SleepClientThread(const std::string& reason,
-                                             std::chrono::nanoseconds timeout,
-                                             std::shared_ptr<WakeupCallback> callback);
+    KEvent* SleepClientThread(const std::string& reason, std::chrono::nanoseconds timeout,
+                              std::shared_ptr<WakeupCallback> callback);
 
 private:
     template <typename ResultFunctor>
@@ -262,7 +260,7 @@ private:
             future = std::move(fut);
         }
 
-        void WakeUp(std::shared_ptr<Kernel::Thread> thread, Kernel::HLERequestContext& ctx,
+        void WakeUp(Kernel::KThread* thread, Kernel::HLERequestContext& ctx,
                     Kernel::ThreadWakeupReason reason) {
             functor(ctx);
         }
@@ -327,13 +325,13 @@ public:
      * Resolves a object id from the request command buffer into a pointer to an object. See the
      * "HLE handle protocol" section in the class documentation for more details.
      */
-    std::shared_ptr<Object> GetIncomingHandle(u32 id_from_cmdbuf) const;
+    KAutoObject* GetIncomingHandle(u32 id_from_cmdbuf) const;
 
     /**
      * Adds an outgoing object to the response, returning the id which should be used to reference
      * it. See the "HLE handle protocol" section in the class documentation for more details.
      */
-    u32 AddOutgoingHandle(std::shared_ptr<Object> object);
+    u32 AddOutgoingHandle(KAutoObject* object);
 
     /**
      * Discards all Objects from the context, invalidating all ids. This may be called after reading
@@ -361,8 +359,8 @@ public:
     MappedBuffer& GetMappedBuffer(u32 id_from_cmdbuf);
 
     /// Populates this context with data from the requesting process/thread.
-    Result PopulateFromIncomingCommandBuffer(const u32_le* src_cmdbuf,
-                                             std::shared_ptr<Process> src_process);
+    Result PopulateFromIncomingCommandBuffer(const u32_le* src_cmdbuf, Process* src_process);
+
     /// Writes data from this context back to the requesting process/thread.
     Result WriteToOutgoingCommandBuffer(u32_le* dst_cmdbuf, Process& dst_process) const;
 
@@ -375,10 +373,10 @@ public:
 private:
     KernelSystem& kernel;
     std::array<u32, IPC::COMMAND_BUFFER_LENGTH> cmd_buf;
-    std::shared_ptr<ServerSession> session;
-    std::shared_ptr<Thread> thread;
+    KServerSession* session;
+    KThread* thread;
     // TODO(yuriks): Check common usage of this and optimize size accordingly
-    boost::container::small_vector<std::shared_ptr<Object>, 8> request_handles;
+    boost::container::small_vector<KAutoObject*, 8> request_handles;
     // The static buffers will be created when the IPC request is translated.
     std::array<std::vector<u8>, IPC::MAX_STATIC_BUFFERS> static_buffers;
     // The mapped buffers will be created when the IPC request is translated

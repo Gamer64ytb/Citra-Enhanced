@@ -260,8 +260,9 @@ ERR_F::ERR_F(Core::System& system) : ServiceFramework("err:f", 1), system(system
 ERR_F::~ERR_F() = default;
 
 void InstallInterfaces(Core::System& system) {
+    auto& service_manager = system.ServiceManager();
     auto errf = std::make_shared<ERR_F>(system);
-    errf->InstallAsNamedPort(system.Kernel());
+    errf->InstallAsNamedPort(service_manager, system.Kernel());
 }
 
 } // namespace Service::ERR

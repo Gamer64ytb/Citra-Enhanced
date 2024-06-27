@@ -9,6 +9,7 @@
 #include <boost/serialization/binary_object.hpp>
 
 #include "common/common_types.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/nfc/nfc_results.h"
 #include "core/hle/service/nfc/nfc_types.h"
 #include "core/hle/service/service.h"
@@ -68,8 +69,8 @@ public:
     Result GetCommunicationStatus(CommunicationState& status) const;
     Result CheckConnectionState() const;
 
-    std::shared_ptr<Kernel::Event> GetActivateEvent() const;
-    std::shared_ptr<Kernel::Event> GetDeactivateEvent() const;
+    Kernel::KEvent* GetActivateEvent() const;
+    Kernel::KEvent* GetDeactivateEvent() const;
 
     /// Automatically removes the nfc tag after x ammount of time.
     /// If called multiple times the counter will be restarted.
@@ -85,8 +86,9 @@ private:
 
     void BuildAmiiboWithoutKeys();
 
-    std::shared_ptr<Kernel::Event> tag_in_range_event = nullptr;
-    std::shared_ptr<Kernel::Event> tag_out_of_range_event = nullptr;
+    KernelHelpers::ServiceContext service_context;
+    Kernel::KEvent* tag_in_range_event = nullptr;
+    Kernel::KEvent* tag_out_of_range_event = nullptr;
     Core::TimingEventType* remove_amiibo_event = nullptr;
 
     bool is_initalized{};

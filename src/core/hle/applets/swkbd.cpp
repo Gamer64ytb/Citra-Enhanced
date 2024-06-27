@@ -10,12 +10,9 @@
 #include "common/string_util.h"
 #include "core/core.h"
 #include "core/hle/applets/swkbd.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/kernel/kernel.h"
-#include "core/hle/kernel/shared_memory.h"
 #include "core/hle/result.h"
-#include "core/hle/service/gsp/gsp.h"
-#include "core/hle/service/hid/hid.h"
-#include "core/memory.h"
 
 namespace HLE::Applets {
 
@@ -32,7 +29,7 @@ Result SoftwareKeyboard::ReceiveParameterImpl(Service::APT::MessageParameter con
 
         using Kernel::MemoryPermission;
         // Create a SharedMemory that directly points to this heap block.
-        framebuffer_memory = system.Kernel().CreateSharedMemoryForApplet(
+        framebuffer_memory = service_context.CreateSharedMemoryForApplet(
             0, capture_info.size, MemoryPermission::ReadWrite, MemoryPermission::ReadWrite,
             "SoftwareKeyboard Memory");
 
@@ -94,7 +91,7 @@ Result SoftwareKeyboard::Start(Service::APT::MessageParameter const& parameter) 
                "The size of the parameter (SoftwareKeyboardConfig) is wrong");
 
     std::memcpy(&config, parameter.buffer.data(), parameter.buffer.size());
-    text_memory = std::static_pointer_cast<Kernel::SharedMemory, Kernel::Object>(parameter.object);
+    text_memory = parameter.object->DynamicCast<Kernel::KSharedMemory*>();
 
     DrawScreenKeyboard();
 

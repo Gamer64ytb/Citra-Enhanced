@@ -20,7 +20,7 @@
 #include <httplib.h>
 #include "common/thread.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/shared_memory.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -864,7 +864,7 @@ private:
 
     void DecryptClCertA();
 
-    std::shared_ptr<Kernel::SharedMemory> shared_memory = nullptr;
+    Kernel::KSharedMemory* shared_memory = nullptr;
 
     /// The next number to use when a new HTTP session is initalized.
     u32 session_counter = 0;

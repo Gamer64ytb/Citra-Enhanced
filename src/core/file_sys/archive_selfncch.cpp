@@ -11,7 +11,7 @@
 #include "core/file_sys/archive_selfncch.h"
 #include "core/file_sys/errors.h"
 #include "core/file_sys/ivfc_archive.h"
-#include "core/hle/kernel/process.h"
+#include "core/hle/kernel/k_process.h"
 
 SERIALIZE_EXPORT_IMPL(FileSys::ArchiveFactory_SelfNCCH)
 

@@ -3,7 +3,6 @@
 // Refer to the license.txt file included.
 
 #include "common/archives.h"
-#include "common/file_util.h"
 #include "common/settings.h"
 #include "core/core.h"
 #include "core/frontend/input.h"
@@ -12,11 +11,13 @@
 #include "core/hle/applets/mii_selector.h"
 #include "core/hle/applets/mint.h"
 #include "core/hle/applets/swkbd.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/hle/service/am/am.h"
 #include "core/hle/service/apt/applet_manager.h"
 #include "core/hle/service/apt/errors.h"
 #include "core/hle/service/apt/ns.h"
 #include "core/hle/service/cfg/cfg.h"
+#include "core/hle/service/fs/archive.h"
 #include "core/hle/service/gsp/gsp_gpu.h"
 #include "video_core/utils.h"
 
@@ -364,7 +365,7 @@ ResultVal<AppletManager::InitializeResult> AppletManager::Initialize(AppletId ap
     slot_data->applet_id = static_cast<AppletId>(app_id);
     // Note: In the real console the title id of a given applet slot is set by the APT module when
     // calling StartApplication.
-    slot_data->title_id = system.Kernel().GetCurrentProcess()->codeset->program_id;
+    slot_data->title_id = system.Kernel().GetCurrentProcess()->codeset.program_id;
     slot_data->attributes.raw = attributes.raw;
 
     // Applications need to receive a Wakeup signal to actually start up, this signal is usually
@@ -627,7 +628,7 @@ Result AppletManager::FinishPreloadingLibraryApplet(AppletId applet_id) {
     return ResultSuccess;
 }
 
-Result AppletManager::StartLibraryApplet(AppletId applet_id, std::shared_ptr<Kernel::Object> object,
+Result AppletManager::StartLibraryApplet(AppletId applet_id, Kernel::KAutoObject* object,
                                          const std::vector<u8>& buffer) {
     active_slot = AppletSlot::LibraryApplet;
 
@@ -635,7 +636,7 @@ Result AppletManager::StartLibraryApplet(AppletId applet_id, std::shared_ptr<Ker
         .sender_id = GetAppletSlotId(last_library_launcher_slot),
         .destination_id = applet_id,
         .signal = SignalType::Wakeup,
-        .object = std::move(object),
+        .object = object,
         .buffer = buffer,
     });
     if (send_res.IsError()) {
@@ -664,7 +665,7 @@ Result AppletManager::PrepareToCloseLibraryApplet(bool not_pause, bool exiting, 
     return ResultSuccess;
 }
 
-Result AppletManager::CloseLibraryApplet(std::shared_ptr<Kernel::Object> object,
+Result AppletManager::CloseLibraryApplet(Kernel::KAutoObject* object,
                                          const std::vector<u8>& buffer) {
     auto slot = GetAppletSlot(AppletSlot::LibraryApplet);
     auto destination_id = GetAppletSlotId(last_library_launcher_slot);
@@ -675,7 +676,7 @@ Result AppletManager::CloseLibraryApplet(std::shared_ptr<Kernel::Object> object,
         .sender_id = slot->applet_id,
         .destination_id = destination_id,
         .signal = library_applet_closing_command,
-        .object = std::move(object),
+        .object = object,
         .buffer = buffer,
     };
 
@@ -709,8 +710,7 @@ Result AppletManager::CancelLibraryApplet(bool app_exiting) {
     });
 }
 
-Result AppletManager::SendDspSleep(AppletId from_applet_id,
-                                   std::shared_ptr<Kernel::Object> object) {
+Result AppletManager::SendDspSleep(AppletId from_applet_id, Kernel::KAutoObject* object) {
     auto lib_slot = GetAppletSlotFromPos(AppletPos::Library);
     auto lib_app_id =
         lib_slot != AppletSlot::Error ? GetAppletSlot(lib_slot)->applet_id : AppletId::None;
@@ -719,7 +719,7 @@ Result AppletManager::SendDspSleep(AppletId from_applet_id,
             .sender_id = from_applet_id,
             .destination_id = AppletId::Application,
             .signal = SignalType::DspSleep,
-            .object = std::move(object),
+            .object = object,
         });
         return ResultSuccess;
     }
@@ -743,8 +743,7 @@ Result AppletManager::SendDspSleep(AppletId from_applet_id,
     return ResultSuccess;
 }
 
-Result AppletManager::SendDspWakeUp(AppletId from_applet_id,
-                                    std::shared_ptr<Kernel::Object> object) {
+Result AppletManager::SendDspWakeUp(AppletId from_applet_id, Kernel::KAutoObject* object) {
     auto lib_slot = GetAppletSlotFromPos(AppletPos::Library);
     auto lib_app_id =
         lib_slot != AppletSlot::Error ? GetAppletSlot(lib_slot)->applet_id : AppletId::None;
@@ -753,7 +752,7 @@ Result AppletManager::SendDspWakeUp(AppletId from_applet_id,
             .sender_id = from_applet_id,
             .destination_id = AppletId::Application,
             .signal = SignalType::DspSleep,
-            .object = std::move(object),
+            .object = object,
         });
     } else {
         auto sys_lib_slot = GetAppletSlotFromPos(AppletPos::SysLibrary);
@@ -788,7 +787,7 @@ Result AppletManager::PrepareToStartSystemApplet(AppletId applet_id) {
     return ResultSuccess;
 }
 
-Result AppletManager::StartSystemApplet(AppletId applet_id, std::shared_ptr<Kernel::Object> object,
+Result AppletManager::StartSystemApplet(AppletId applet_id, Kernel::KAutoObject* object,
                                         const std::vector<u8>& buffer) {
     auto source_applet_id = AppletId::Application;
     if (last_system_launcher_slot != AppletSlot::Error) {
@@ -830,7 +829,7 @@ Result AppletManager::StartSystemApplet(AppletId applet_id, std::shared_ptr<Kern
         .sender_id = source_applet_id,
         .destination_id = applet_id,
         .signal = SignalType::Wakeup,
-        .object = std::move(object),
+        .object = object,
         .buffer = buffer,
     });
 
@@ -846,7 +845,7 @@ Result AppletManager::PrepareToCloseSystemApplet() {
     return ResultSuccess;
 }
 
-Result AppletManager::CloseSystemApplet(std::shared_ptr<Kernel::Object> object,
+Result AppletManager::CloseSystemApplet(Kernel::KAutoObject* object,
                                         const std::vector<u8>& buffer) {
     ASSERT_MSG(active_slot == AppletSlot::HomeMenu || active_slot == AppletSlot::SystemApplet,
                "Attempting to close a system applet from a non-system applet.");
@@ -865,7 +864,7 @@ Result AppletManager::CloseSystemApplet(std::shared_ptr<Kernel::Object> object,
             .sender_id = closed_applet_id,
             .destination_id = AppletId::Application,
             .signal = SignalType::WakeupByExit,
-            .object = std::move(object),
+            .object = object,
             .buffer = buffer,
         });
     }
@@ -928,13 +927,12 @@ Result AppletManager::PrepareToJumpToHomeMenu() {
     return ResultSuccess;
 }
 
-Result AppletManager::JumpToHomeMenu(std::shared_ptr<Kernel::Object> object,
-                                     const std::vector<u8>& buffer) {
+Result AppletManager::JumpToHomeMenu(Kernel::KAutoObject* object, const std::vector<u8>& buffer) {
     if (last_jump_to_home_slot != AppletSlot::Error) {
         auto slot_data = GetAppletSlot(last_jump_to_home_slot);
         if (slot_data->applet_id != AppletId::None) {
             MessageParameter param;
-            param.object = std::move(object);
+            param.object = object;
             param.buffer = buffer;
 
             switch (slot_data->attributes.applet_pos) {
@@ -992,15 +990,14 @@ Result AppletManager::PrepareToLeaveHomeMenu() {
     return ResultSuccess;
 }
 
-Result AppletManager::LeaveHomeMenu(std::shared_ptr<Kernel::Object> object,
-                                    const std::vector<u8>& buffer) {
+Result AppletManager::LeaveHomeMenu(Kernel::KAutoObject* object, const std::vector<u8>& buffer) {
     active_slot = AppletSlot::Application;
 
     SendParameter({
         .sender_id = AppletId::HomeMenu,
         .destination_id = AppletId::Application,
         .signal = SignalType::WakeupByPause,
-        .object = std::move(object),
+        .object = object,
         .buffer = buffer,
     });
 
@@ -1083,8 +1080,7 @@ Result AppletManager::PrepareToCloseApplication(bool return_to_sys) {
     return ResultSuccess;
 }
 
-Result AppletManager::CloseApplication(std::shared_ptr<Kernel::Object> object,
-                                       const std::vector<u8>& buffer) {
+Result AppletManager::CloseApplication(Kernel::KAutoObject* object, const std::vector<u8>& buffer) {
     ordered_to_close_application = false;
     application_cancelled = false;
 
@@ -1102,7 +1098,7 @@ Result AppletManager::CloseApplication(std::shared_ptr<Kernel::Object> object,
                 .sender_id = AppletId::Application,
                 .destination_id = GetAppletSlot(application_close_target)->applet_id,
                 .signal = SignalType::WakeupByExit,
-                .object = std::move(object),
+                .object = object,
                 .buffer = buffer,
             });
         }
@@ -1362,7 +1358,7 @@ Result AppletManager::StartApplication(const std::vector<u8>& parameter,
     return ResultSuccess;
 }
 
-Result AppletManager::WakeupApplication(std::shared_ptr<Kernel::Object> object,
+Result AppletManager::WakeupApplication(Kernel::KAutoObject* object,
                                         const std::vector<u8>& buffer) {
     // Send a Wakeup signal via the apt parameter to the application once it registers itself.
     // The real APT service does this by spin waiting on another thread until the application is
@@ -1371,7 +1367,7 @@ Result AppletManager::WakeupApplication(std::shared_ptr<Kernel::Object> object,
         .sender_id = AppletId::HomeMenu,
         .destination_id = AppletId::Application,
         .signal = SignalType::Wakeup,
-        .object = std::move(object),
+        .object = object,
         .buffer = buffer,
     });
 
@@ -1563,8 +1559,8 @@ void AppletManager::ButtonUpdateEvent(std::uintptr_t user_data, s64 cycles_late)
                                       button_update_event);
 }
 
-AppletManager::AppletManager(Core::System& system) : system(system) {
-    lock = system.Kernel().CreateMutex(false, "APT_U:Lock");
+AppletManager::AppletManager(Core::System& system) : system(system), service_context(system) {
+    lock = service_context.CreateMutex(false, "APT_U:Lock");
     for (std::size_t slot = 0; slot < applet_slots.size(); ++slot) {
         auto& slot_data = applet_slots[slot];
         slot_data.slot = static_cast<AppletSlot>(slot);
@@ -1573,9 +1569,9 @@ AppletManager::AppletManager(Core::System& system) : system(system) {
         slot_data.registered = false;
         slot_data.loaded = false;
         slot_data.notification_event =
-            system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "APT:Notification");
+            service_context.CreateEvent(Kernel::ResetType::OneShot, "APT:Notification");
         slot_data.parameter_event =
-            system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "APT:Parameter");
+            service_context.CreateEvent(Kernel::ResetType::OneShot, "APT:Parameter");
     }
     hle_applet_update_event = system.CoreTiming().RegisterEvent(
         "HLE Applet Update Event", [this](std::uintptr_t user_data, s64 cycles_late) {

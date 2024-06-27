@@ -265,7 +265,7 @@ private:
     FriendKey my_friend_key = {0, 0, 0ull};
     MyPresence my_presence = {};
     bool logged_in = false;
-    std::shared_ptr<Kernel::Event> login_event;
+    Kernel::KEvent* login_event;
     Core::TimingEventType* login_delay_event;
     Core::System& system;
 

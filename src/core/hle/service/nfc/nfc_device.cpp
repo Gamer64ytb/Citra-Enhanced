@@ -10,6 +10,7 @@
 #include "common/file_util.h"
 #include "common/logging/log.h"
 #include "core/core.h"
+#include "core/hle/kernel/k_event.h"
 #include "core/hle/kernel/shared_page.h"
 #include "core/hle/service/nfc/amiibo_crypto.h"
 #include "core/hle/service/nfc/nfc_device.h"
@@ -39,11 +40,11 @@ void NfcDevice::serialize(Archive& ar, const unsigned int) {
 }
 SERIALIZE_IMPL(NfcDevice)
 
-NfcDevice::NfcDevice(Core::System& system_) : system{system_} {
+NfcDevice::NfcDevice(Core::System& system_) : service_context{system_}, system{system_} {
     tag_in_range_event =
-        system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "NFC::tag_in_range_event");
+        service_context.CreateEvent(Kernel::ResetType::OneShot, "NFC::tag_in_range_event");
     tag_out_of_range_event =
-        system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "NFC::tag_out_range_event");
+        service_context.CreateEvent(Kernel::ResetType::OneShot, "NFC::tag_out_range_event");
 
     remove_amiibo_event = system.CoreTiming().RegisterEvent(
         "remove amiibo event",
@@ -138,11 +139,11 @@ void NfcDevice::CloseAmiibo() {
     tag_out_of_range_event->Signal();
 }
 
-std::shared_ptr<Kernel::Event> NfcDevice::GetActivateEvent() const {
+Kernel::KEvent* NfcDevice::GetActivateEvent() const {
     return tag_in_range_event;
 }
 
-std::shared_ptr<Kernel::Event> NfcDevice::GetDeactivateEvent() const {
+Kernel::KEvent* NfcDevice::GetDeactivateEvent() const {
     return tag_out_of_range_event;
 }
 

@@ -136,60 +136,70 @@ add_library(citra_core STATIC
     hle/applets/swkbd.h
     hle/ipc.h
     hle/ipc_helpers.h
-    hle/kernel/address_arbiter.cpp
-    hle/kernel/address_arbiter.h
-    hle/kernel/client_port.cpp
-    hle/kernel/client_port.h
-    hle/kernel/client_session.cpp
-    hle/kernel/client_session.h
     hle/kernel/config_mem.cpp
     hle/kernel/config_mem.h
     hle/kernel/errors.h
-    hle/kernel/event.cpp
-    hle/kernel/event.h
-    hle/kernel/handle_table.cpp
-    hle/kernel/handle_table.h
     hle/kernel/hle_ipc.cpp
     hle/kernel/hle_ipc.h
     hle/kernel/ipc.cpp
     hle/kernel/ipc.h
     hle/kernel/ipc_debugger/recorder.cpp
     hle/kernel/ipc_debugger/recorder.h
+    hle/kernel/k_address_arbiter.cpp
+    hle/kernel/k_address_arbiter.h
+    hle/kernel/k_auto_object.cpp
+    hle/kernel/k_auto_object.h
+    hle/kernel/k_auto_object_container.cpp
+    hle/kernel/k_auto_object_container.h
+    hle/kernel/k_client_port.cpp
+    hle/kernel/k_client_port.h
+    hle/kernel/k_client_session.cpp
+    hle/kernel/k_client_session.h
+    hle/kernel/k_code_set.h
+    hle/kernel/k_event.cpp
+    hle/kernel/k_event.h
+    hle/kernel/k_handle_table.cpp
+    hle/kernel/k_handle_table.h
+    hle/kernel/k_linked_list.h
+    hle/kernel/k_mutex.cpp
+    hle/kernel/k_mutex.h
+    hle/kernel/k_object_name.cpp
+    hle/kernel/k_object_name.h
+    hle/kernel/k_port.cpp
+    hle/kernel/k_port.h
+    hle/kernel/k_process.cpp
+    hle/kernel/k_process.h
+    hle/kernel/k_resource_limit.cpp
+    hle/kernel/k_resource_limit.h
+    hle/kernel/k_scoped_resource_reservation.h
+    hle/kernel/k_semaphore.cpp
+    hle/kernel/k_semaphore.h
+    hle/kernel/k_server_port.cpp
+    hle/kernel/k_server_port.h
+    hle/kernel/k_server_session.cpp
+    hle/kernel/k_server_session.h
+    hle/kernel/k_session.cpp
+    hle/kernel/k_session.h
+    hle/kernel/k_shared_memory.cpp
+    hle/kernel/k_shared_memory.h
+    hle/kernel/k_slab_heap.h
+    hle/kernel/k_synchronization_object.cpp
+    hle/kernel/k_synchronization_object.h
+    hle/kernel/k_thread.cpp
+    hle/kernel/k_thread.h
+    hle/kernel/k_timer.cpp
+    hle/kernel/k_timer.h
     hle/kernel/kernel.cpp
     hle/kernel/kernel.h
     hle/kernel/memory.cpp
     hle/kernel/memory.h
-    hle/kernel/mutex.cpp
-    hle/kernel/mutex.h
-    hle/kernel/object.cpp
-    hle/kernel/object.h
-    hle/kernel/process.cpp
-    hle/kernel/process.h
-    hle/kernel/resource_limit.cpp
-    hle/kernel/resource_limit.h
-    hle/kernel/semaphore.cpp
-    hle/kernel/semaphore.h
-    hle/kernel/server_port.cpp
-    hle/kernel/server_port.h
-    hle/kernel/server_session.cpp
-    hle/kernel/server_session.h
-    hle/kernel/session.h
-    hle/kernel/session.cpp
-    hle/kernel/shared_memory.cpp
-    hle/kernel/shared_memory.h
     hle/kernel/shared_page.cpp
     hle/kernel/shared_page.h
     hle/kernel/svc.cpp
     hle/kernel/svc.h
     hle/kernel/svc_wrapper.h
-    hle/kernel/thread.cpp
-    hle/kernel/thread.h
-    hle/kernel/timer.cpp
-    hle/kernel/timer.h
     hle/kernel/vm_manager.cpp
     hle/kernel/vm_manager.h
-    hle/kernel/wait_object.cpp
-    hle/kernel/wait_object.h
     hle/mii.h
     hle/mii.cpp
     hle/result.h
@@ -331,6 +341,8 @@ add_library(citra_core STATIC
     hle/service/ir/ir_u.h
     hle/service/ir/ir_user.cpp
     hle/service/ir/ir_user.h
+    hle/service/kernel_helpers.cpp
+    hle/service/kernel_helpers.h
     hle/service/ldr_ro/cro_helper.cpp
     hle/service/ldr_ro/cro_helper.h
     hle/service/ldr_ro/ldr_ro.cpp

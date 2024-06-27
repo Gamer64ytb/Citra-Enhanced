@@ -12,8 +12,8 @@
 #include "common/texture.h"
 #include "core/core.h"
 #include "core/frontend/image_interface.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/kernel.h"
-#include "core/hle/kernel/process.h"
 #include "video_core/custom_textures/custom_tex_manager.h"
 #include "video_core/rasterizer_cache/surface_params.h"
 #include "video_core/rasterizer_cache/utils.h"
@@ -90,7 +90,7 @@ void CustomTexManager::FindCustomTextures() {
         CreateWorkers();
     }
 
-    const u64 title_id = system.Kernel().GetCurrentProcess()->codeset->program_id;
+    const u64 title_id = system.Kernel().GetCurrentProcess()->codeset.program_id;
     const auto textures = GetTextures(title_id);
     if (!ReadConfig(title_id)) {
         use_new_hash = false;
@@ -236,7 +236,7 @@ void CustomTexManager::PreloadTextures(const std::atomic_bool& stop_run,
 
 void CustomTexManager::DumpTexture(const SurfaceParams& params, u32 level, std::span<u8> data,
                                    u64 data_hash) {
-    const u64 program_id = system.Kernel().GetCurrentProcess()->codeset->program_id;
+    const u64 program_id = system.Kernel().GetCurrentProcess()->codeset.program_id;
     const u32 data_size = static_cast<u32>(data.size());
     const u32 width = params.width;
     const u32 height = params.height;

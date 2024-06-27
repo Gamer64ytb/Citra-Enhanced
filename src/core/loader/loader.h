@@ -107,7 +107,7 @@ public:
      * @param process The newly created process.
      * @return The status result of the operation.
      */
-    virtual ResultStatus Load(std::shared_ptr<Kernel::Process>& process) = 0;
+    virtual ResultStatus Load(Kernel::Process** out_process) = 0;
 
     /**
      * Loads the core version (FIRM title ID low) that this application needs.

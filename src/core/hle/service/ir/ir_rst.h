@@ -10,6 +10,7 @@
 #include "common/common_types.h"
 #include "common/swap.h"
 #include "core/frontend/input.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Kernel {
@@ -77,8 +78,9 @@ private:
     void UpdateCallback(std::uintptr_t user_data, s64 cycles_late);
 
     Core::System& system;
-    std::shared_ptr<Kernel::Event> update_event;
-    std::shared_ptr<Kernel::SharedMemory> shared_memory;
+    KernelHelpers::ServiceContext service_context;
+    Kernel::KEvent* update_event;
+    Kernel::KSharedMemory* shared_memory;
     u32 next_pad_index{0};
     Core::TimingEventType* update_callback_id;
     std::unique_ptr<Input::ButtonDevice> zl_button;

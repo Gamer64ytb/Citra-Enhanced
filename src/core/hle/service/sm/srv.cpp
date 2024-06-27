@@ -2,7 +2,6 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include <tuple>
 #include <boost/serialization/shared_ptr.hpp>
 #include <boost/serialization/string.hpp>
 #include <boost/serialization/unordered_map.hpp>
@@ -12,15 +11,14 @@
 #include "core/core.h"
 #include "core/hle/ipc.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/client_port.h"
-#include "core/hle/kernel/client_session.h"
 #include "core/hle/kernel/errors.h"
-#include "core/hle/kernel/event.h"
 #include "core/hle/kernel/hle_ipc.h"
-#include "core/hle/kernel/resource_limit.h"
-#include "core/hle/kernel/semaphore.h"
-#include "core/hle/kernel/server_port.h"
-#include "core/hle/kernel/server_session.h"
+#include "core/hle/kernel/k_client_port.h"
+#include "core/hle/kernel/k_client_session.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_semaphore.h"
+#include "core/hle/kernel/k_server_port.h"
+#include "core/hle/kernel/k_server_session.h"
 #include "core/hle/service/sm/sm.h"
 #include "core/hle/service/sm/srv.h"
 
@@ -76,8 +74,8 @@ void SRV::RegisterClient(Kernel::HLERequestContext& ctx) {
 void SRV::EnableNotification(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
 
-    notification_semaphore =
-        system.Kernel().CreateSemaphore(0, MAX_PENDING_NOTIFICATIONS, "SRV:Notification").Unwrap();
+    notification_semaphore = Kernel::KSemaphore::Create(system.Kernel());
+    notification_semaphore->Initialize(nullptr, 0, MAX_PENDING_NOTIFICATIONS, "SRV:Notification");
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(ResultSuccess);
@@ -91,21 +89,21 @@ public:
     explicit ThreadCallback(Core::System& system_, std::string name_)
         : system(system_), name(name_) {}
 
-    void WakeUp(std::shared_ptr<Kernel::Thread> thread, Kernel::HLERequestContext& ctx,
+    void WakeUp(Kernel::KThread* thread, Kernel::HLERequestContext& ctx,
                 Kernel::ThreadWakeupReason reason) {
         LOG_ERROR(Service_SRV, "called service={} wakeup", name);
-        std::shared_ptr<Kernel::ClientPort> client_port;
-        R_ASSERT(system.ServiceManager().GetServicePort(std::addressof(client_port), name));
+        Kernel::KClientPort* client_port{};
+        auto result = system.ServiceManager().GetServicePort(std::addressof(client_port), name);
+        ASSERT(result.IsSuccess());
 
-        std::shared_ptr<Kernel::ClientSession> session;
-        auto result = client_port->Connect(std::addressof(session));
+        Kernel::KClientSession* session{};
+        result = client_port->CreateSession(std::addressof(session));
         if (result.IsSuccess()) {
-            LOG_DEBUG(Service_SRV, "called service={} -> session={}", name, session->GetObjectId());
             IPC::RequestBuilder rb(ctx, 0x5, 1, 2);
             rb.Push(result);
-            rb.PushMoveObjects(std::move(session));
+            rb.PushMoveObjects(session);
         } else if (result == Kernel::ResultMaxConnectionsReached) {
-            LOG_ERROR(Service_SRV, "called service={} -> ResultMaxConnectionsReached", name);
+            LOG_ERROR(Service_SRV, "called service={} -> ERR_MAX_CONNECTIONS_REACHED", name);
             UNREACHABLE();
         } else {
             LOG_ERROR(Service_SRV, "called service={} -> error 0x{:08X}", name, result.raw);
@@ -159,14 +157,14 @@ void SRV::GetServiceHandle(Kernel::HLERequestContext& ctx) {
 
     auto get_handle = std::make_shared<ThreadCallback>(system, name);
 
-    std::shared_ptr<Kernel::ClientPort> client_port;
+    Kernel::KClientPort* client_port;
     auto result = system.ServiceManager().GetServicePort(std::addressof(client_port), name);
     if (result.IsError()) {
         if (wait_until_available && result == ResultServiceNotRegistered) {
             LOG_INFO(Service_SRV, "called service={} delayed", name);
-            std::shared_ptr<Kernel::Event> get_service_handle_event =
+            Kernel::KEvent* get_service_handle_event =
                 ctx.SleepClientThread("GetServiceHandle", std::chrono::nanoseconds(-1), get_handle);
-            get_service_handle_delayed_map[name] = std::move(get_service_handle_event);
+            get_service_handle_delayed_map[name] = get_service_handle_event;
             return;
         } else {
             IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
@@ -176,15 +174,14 @@ void SRV::GetServiceHandle(Kernel::HLERequestContext& ctx) {
         }
     }
 
-    std::shared_ptr<Kernel::ClientSession> session;
-    result = client_port->Connect(std::addressof(session));
+    Kernel::KClientSession* session;
+    result = client_port->CreateSession(std::addressof(session));
     if (result.IsSuccess()) {
-        LOG_DEBUG(Service_SRV, "called service={} -> session={}", name, session->GetObjectId());
         IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
         rb.Push(result);
-        rb.PushMoveObjects(std::move(session));
+        rb.PushMoveObjects(session);
     } else if (result == Kernel::ResultMaxConnectionsReached && wait_until_available) {
-        LOG_WARNING(Service_SRV, "called service={} -> ResultMaxConnectionsReached", name);
+        LOG_WARNING(Service_SRV, "called service={} -> ERR_MAX_CONNECTIONS_REACHED", name);
         // TODO(Subv): Put the caller guest thread to sleep until this port becomes available again.
         UNIMPLEMENTED_MSG("Unimplemented wait until port {} is available.", name);
     } else {
@@ -268,7 +265,7 @@ void SRV::RegisterService(Kernel::HLERequestContext& ctx) {
 
     std::string name(name_buf.data(), std::min(name_len, name_buf.size()));
 
-    std::shared_ptr<Kernel::ServerPort> port;
+    Kernel::KServerPort* port;
     auto result = system.ServiceManager().RegisterService(std::addressof(port), name, max_sessions);
 
     if (result.IsError()) {
@@ -286,7 +283,7 @@ void SRV::RegisterService(Kernel::HLERequestContext& ctx) {
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(ResultSuccess);
-    rb.PushMoveObjects(std::move(port));
+    rb.PushMoveObjects(port);
 }
 
 SRV::SRV(Core::System& system) : ServiceFramework("srv:", 64), system(system) {

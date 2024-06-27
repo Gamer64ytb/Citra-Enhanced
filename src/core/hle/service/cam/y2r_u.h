@@ -10,6 +10,7 @@
 #include <boost/serialization/array.hpp>
 #include "common/common_types.h"
 #include "core/hle/result.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -347,8 +348,9 @@ private:
     void GetPackageParameter(Kernel::HLERequestContext& ctx);
 
     Core::System& system;
+    KernelHelpers::ServiceContext service_context;
 
-    std::shared_ptr<Kernel::Event> completion_event;
+    Kernel::KEvent* completion_event;
     Core::TimingEventType* completion_signal_event;
     ConversionConfiguration conversion{};
     DitheringWeightParams dithering_weight_params{};

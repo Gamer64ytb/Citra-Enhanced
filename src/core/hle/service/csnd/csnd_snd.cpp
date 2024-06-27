@@ -6,7 +6,9 @@
 #include "common/archives.h"
 #include "core/core.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/resource_limit.h"
+#include "core/hle/kernel/k_mutex.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/result.h"
 #include "core/hle/service/csnd/csnd_snd.h"
 
@@ -200,12 +202,10 @@ void CSND_SND::Initialize(Kernel::HLERequestContext& ctx) {
     type1_command_offset = rp.Pop<u32>();
 
     using Kernel::MemoryPermission;
-    mutex = system.Kernel().CreateMutex(false, "CSND:mutex");
-    shared_memory = system.Kernel()
-                        .CreateSharedMemory(nullptr, size, MemoryPermission::ReadWrite,
-                                            MemoryPermission::ReadWrite, 0,
-                                            Kernel::MemoryRegion::BASE, "CSND:SharedMemory")
-                        .Unwrap();
+    mutex = service_context.CreateMutex(false, "CSND:mutex");
+    shared_memory = service_context.CreateSharedMemory(
+        size, MemoryPermission::ReadWrite, MemoryPermission::ReadWrite, 0,
+        Kernel::MemoryRegion::BASE, "CSND:SharedMemory");
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 3);
     rb.Push(ResultSuccess);
@@ -462,7 +462,7 @@ void CSND_SND::FlushDataCache(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     [[maybe_unused]] const VAddr address = rp.Pop<u32>();
     [[maybe_unused]] const u32 size = rp.Pop<u32>();
-    const auto process = rp.PopObject<Kernel::Process>();
+    [[maybe_unused]] const auto process = rp.PopObject<Kernel::Process>();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(ResultSuccess);
@@ -475,7 +475,7 @@ void CSND_SND::StoreDataCache(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     [[maybe_unused]] const VAddr address = rp.Pop<u32>();
     [[maybe_unused]] const u32 size = rp.Pop<u32>();
-    const auto process = rp.PopObject<Kernel::Process>();
+    [[maybe_unused]] const auto process = rp.PopObject<Kernel::Process>();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(ResultSuccess);
@@ -488,7 +488,7 @@ void CSND_SND::InvalidateDataCache(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     [[maybe_unused]] const VAddr address = rp.Pop<u32>();
     [[maybe_unused]] const u32 size = rp.Pop<u32>();
-    const auto process = rp.PopObject<Kernel::Process>();
+    [[maybe_unused]] const auto process = rp.PopObject<Kernel::Process>();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(ResultSuccess);
@@ -506,7 +506,8 @@ void CSND_SND::Reset(Kernel::HLERequestContext& ctx) {
     LOG_WARNING(Service_CSND, "(STUBBED) called");
 }
 
-CSND_SND::CSND_SND(Core::System& system) : ServiceFramework("csnd:SND", 4), system(system) {
+CSND_SND::CSND_SND(Core::System& system)
+    : ServiceFramework("csnd:SND", 4), system(system), service_context(system) {
     static const FunctionInfo functions[] = {
         // clang-format off
         {0x0001, &CSND_SND::Initialize, "Initialize"},

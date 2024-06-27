@@ -7,7 +7,7 @@
 #include "common/archives.h"
 #include "core/file_sys/archive_other_savedata.h"
 #include "core/file_sys/errors.h"
-#include "core/hle/kernel/process.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/hle/service/fs/archive.h"
 
 SERIALIZE_EXPORT_IMPL(FileSys::ArchiveFactory_OtherSaveDataPermitted)

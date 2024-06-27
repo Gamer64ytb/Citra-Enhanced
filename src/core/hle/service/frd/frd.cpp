@@ -11,7 +11,7 @@
 #include "core/core.h"
 #include "core/hle/applets/mii_selector.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
+#include "core/hle/kernel/k_event.h"
 #include "core/hle/mii.h"
 #include "core/hle/result.h"
 #include "core/hle/service/cfg/cfg.h"
@@ -256,7 +256,7 @@ void Module::Interface::Login(Kernel::HLERequestContext& ctx) {
     LOG_WARNING(Service_FRD, "(STUBBED) called");
 
     IPC::RequestParser rp(ctx);
-    frd->login_event = rp.PopObject<Kernel::Event>();
+    frd->login_event = rp.PopObject<Kernel::KEvent>();
 
     constexpr auto login_delay_ms = 500;
     frd->login_delay_event = frd->system.CoreTiming().RegisterEvent(

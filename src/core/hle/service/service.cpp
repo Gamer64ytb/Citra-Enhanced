@@ -8,11 +8,12 @@
 #include "common/logging/log.h"
 #include "core/core.h"
 #include "core/hle/ipc.h"
-#include "core/hle/kernel/client_port.h"
-#include "core/hle/kernel/handle_table.h"
-#include "core/hle/kernel/process.h"
-#include "core/hle/kernel/server_port.h"
-#include "core/hle/kernel/server_session.h"
+#include "core/hle/kernel/k_client_port.h"
+#include "core/hle/kernel/k_handle_table.h"
+#include "core/hle/kernel/k_object_name.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_server_port.h"
+#include "core/hle/kernel/k_server_session.h"
 #include "core/hle/service/ac/ac.h"
 #include "core/hle/service/act/act.h"
 #include "core/hle/service/am/am.h"
@@ -131,15 +132,22 @@ ServiceFrameworkBase::ServiceFrameworkBase(const char* service_name, u32 max_ses
 ServiceFrameworkBase::~ServiceFrameworkBase() = default;
 
 void ServiceFrameworkBase::InstallAsService(SM::ServiceManager& service_manager) {
-    std::shared_ptr<Kernel::ServerPort> port;
+    Kernel::KServerPort* port;
     R_ASSERT(service_manager.RegisterService(std::addressof(port), service_name, max_sessions));
     port->SetHleHandler(shared_from_this());
 }
 
-void ServiceFrameworkBase::InstallAsNamedPort(Kernel::KernelSystem& kernel) {
-    auto [server_port, client_port] = kernel.CreatePortPair(max_sessions, service_name);
-    server_port->SetHleHandler(shared_from_this());
-    kernel.AddNamedPort(service_name, std::move(client_port));
+void ServiceFrameworkBase::InstallAsNamedPort(SM::ServiceManager& service_manager,
+                                              Kernel::KernelSystem& kernel) {
+    // Create the port
+    auto* port = Kernel::KPort::Create(kernel);
+    port->Initialize(max_sessions, service_name);
+    Kernel::KPort::Register(kernel, port);
+    Kernel::KObjectName::NewFromName(kernel, &port->GetClientPort(), service_name.c_str());
+
+    // Register the named port
+    R_ASSERT(service_manager.RegisterPort(std::addressof(port->GetClientPort()), service_name));
+    port->GetServerPort().SetHleHandler(shared_from_this());
 }
 
 void ServiceFrameworkBase::RegisterHandlersBase(const FunctionInfoBase* functions, std::size_t n) {
@@ -206,8 +214,8 @@ static bool AttemptLLE(const ServiceModuleInfo& service_module) {
                   service_module.name);
         return false;
     }
-    std::shared_ptr<Kernel::Process> process;
-    loader->Load(process);
+    Kernel::Process* process;
+    loader->Load(std::addressof(process));
     LOG_DEBUG(Service, "Service module \"{}\" has been successfully loaded.", service_module.name);
     return true;
 }

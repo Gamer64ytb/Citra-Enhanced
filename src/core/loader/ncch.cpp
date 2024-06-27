@@ -15,9 +15,9 @@
 #include "core/core.h"
 #include "core/file_sys/ncch_container.h"
 #include "core/file_sys/title_metadata.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_resource_limit.h"
 #include "core/hle/kernel/kernel.h"
-#include "core/hle/kernel/process.h"
-#include "core/hle/kernel/resource_limit.h"
 #include "core/hle/service/am/am.h"
 #include "core/hle/service/cfg/cfg.h"
 #include "core/hle/service/fs/archive.h"
@@ -97,11 +97,12 @@ AppLoader_NCCH::LoadNew3dsHwCapabilities() {
     return std::make_pair(std::move(caps), ResultStatus::Success);
 }
 
-ResultStatus AppLoader_NCCH::LoadExec(std::shared_ptr<Kernel::Process>& process) {
+ResultStatus AppLoader_NCCH::LoadExec(Kernel::Process** out_process) {
     using Kernel::CodeSet;
 
-    if (!is_loaded)
+    if (!is_loaded) {
         return ResultStatus::ErrorNotLoaded;
+    }
 
     std::vector<u8> code;
     u64_le program_id;
@@ -112,20 +113,30 @@ ResultStatus AppLoader_NCCH::LoadExec(std::shared_ptr<Kernel::Process>& process)
             return ResultStatus::ErrorGbaTitle;
         }
 
-        std::string process_name = Common::StringFromFixedZeroTerminatedBuffer(
+        const auto process_name = Common::StringFromFixedZeroTerminatedBuffer(
             (const char*)overlay_ncch->exheader_header.codeset_info.name, 8);
 
-        std::shared_ptr<CodeSet> codeset = system.Kernel().CreateCodeSet(process_name, program_id);
+        // Create the process
+        auto& kernel = system.Kernel();
+        auto* process = Kernel::Process::Create(kernel);
 
-        codeset->CodeSegment().offset = 0;
-        codeset->CodeSegment().addr = overlay_ncch->exheader_header.codeset_info.text.address;
-        codeset->CodeSegment().size =
+        // Register the process.
+        process->Initialize();
+        Kernel::Process::Register(kernel, process);
+
+        // Initialize process codeset
+        auto& codeset = process->codeset;
+        codeset.name = process_name;
+        codeset.program_id = program_id;
+
+        codeset.CodeSegment().offset = 0;
+        codeset.CodeSegment().addr = overlay_ncch->exheader_header.codeset_info.text.address;
+        codeset.CodeSegment().size =
             overlay_ncch->exheader_header.codeset_info.text.num_max_pages * Memory::CITRA_PAGE_SIZE;
 
-        codeset->RODataSegment().offset =
-            codeset->CodeSegment().offset + codeset->CodeSegment().size;
-        codeset->RODataSegment().addr = overlay_ncch->exheader_header.codeset_info.ro.address;
-        codeset->RODataSegment().size =
+        codeset.RODataSegment().offset = codeset.CodeSegment().offset + codeset.CodeSegment().size;
+        codeset.RODataSegment().addr = overlay_ncch->exheader_header.codeset_info.ro.address;
+        codeset.RODataSegment().size =
             overlay_ncch->exheader_header.codeset_info.ro.num_max_pages * Memory::CITRA_PAGE_SIZE;
 
         // TODO(yuriks): Not sure if the bss size is added to the page-aligned .data size or just
@@ -133,28 +144,25 @@ ResultStatus AppLoader_NCCH::LoadExec(std::shared_ptr<Kernel::Process>& process)
         u32 bss_page_size = (overlay_ncch->exheader_header.codeset_info.bss_size + 0xFFF) & ~0xFFF;
         code.resize(code.size() + bss_page_size, 0);
 
-        codeset->DataSegment().offset =
-            codeset->RODataSegment().offset + codeset->RODataSegment().size;
-        codeset->DataSegment().addr = overlay_ncch->exheader_header.codeset_info.data.address;
-        codeset->DataSegment().size =
-            overlay_ncch->exheader_header.codeset_info.data.num_max_pages *
-                Memory::CITRA_PAGE_SIZE +
-            bss_page_size;
+        codeset.DataSegment().offset =
+            codeset.RODataSegment().offset + codeset.RODataSegment().size;
+        codeset.DataSegment().addr = overlay_ncch->exheader_header.codeset_info.data.address;
+        codeset.DataSegment().size = overlay_ncch->exheader_header.codeset_info.data.num_max_pages *
+                                         Memory::CITRA_PAGE_SIZE +
+                                     bss_page_size;
 
         // Apply patches now that the entire codeset (including .bss) has been allocated
         const ResultStatus patch_result = overlay_ncch->ApplyCodePatch(code);
         if (patch_result != ResultStatus::Success && patch_result != ResultStatus::ErrorNotUsed)
             return patch_result;
 
-        codeset->entrypoint = codeset->CodeSegment().addr;
-        codeset->memory = std::move(code);
-
-        process = system.Kernel().CreateProcess(std::move(codeset));
+        codeset.entrypoint = codeset.CodeSegment().addr;
+        codeset.memory = std::move(code);
 
         // Attach a resource limit to the process based on the resource limit category
         const auto category = static_cast<Kernel::ResourceLimitCategory>(
             overlay_ncch->exheader_header.arm11_system_local_caps.resource_limit_category);
-        process->resource_limit = system.Kernel().ResourceLimit().GetForCategory(category);
+        process->resource_limit = kernel.ResourceLimit().GetForCategory(category);
 
         // When running N3DS-unaware titles pm will lie about the amount of memory available.
         // This means RESLIMIT_COMMIT = APPMEMALLOC doesn't correspond to the actual size of
@@ -200,7 +208,7 @@ ResultStatus AppLoader_NCCH::LoadExec(std::shared_ptr<Kernel::Process>& process)
 
         // On real HW this is done with FS:Reg, but we can be lazy
         auto fs_user = system.ServiceManager().GetService<Service::FS::FS_USER>("fs:USER");
-        fs_user->RegisterProgramInfo(process->process_id, process->codeset->program_id, filepath);
+        fs_user->RegisterProgramInfo(process->process_id, process->codeset.program_id, filepath);
 
         Service::FS::FS_USER::ProductInfo product_info{};
         std::memcpy(product_info.product_code.data(), overlay_ncch->ncch_header.product_code,
@@ -212,6 +220,7 @@ ResultStatus AppLoader_NCCH::LoadExec(std::shared_ptr<Kernel::Process>& process)
         fs_user->RegisterProductInfo(process->process_id, product_info);
 
         process->Run(priority, stack_size);
+        *out_process = process;
         return ResultStatus::Success;
     }
     return ResultStatus::Error;
@@ -254,15 +263,17 @@ bool AppLoader_NCCH::IsGbaVirtualConsole(std::span<const u8> code) {
     return gbaVcHeader[0] == MakeMagic('.', 'C', 'A', 'A') && gbaVcHeader[1] == 1;
 }
 
-ResultStatus AppLoader_NCCH::Load(std::shared_ptr<Kernel::Process>& process) {
+ResultStatus AppLoader_NCCH::Load(Kernel::Process** out_process) {
     u64_le ncch_program_id;
 
-    if (is_loaded)
+    if (is_loaded) {
         return ResultStatus::ErrorAlreadyLoaded;
+    }
 
     ResultStatus result = base_ncch.Load();
-    if (result != ResultStatus::Success)
+    if (result != ResultStatus::Success) {
         return result;
+    }
 
     ReadProgramId(ncch_program_id);
     std::string program_id{fmt::format("{:016X}", ncch_program_id)};
@@ -285,9 +296,10 @@ ResultStatus AppLoader_NCCH::Load(std::shared_ptr<Kernel::Process>& process) {
 
     is_loaded = true; // Set state to loaded
 
-    result = LoadExec(process); // Load the executable into memory for booting
-    if (ResultStatus::Success != result)
+    result = LoadExec(out_process); // Load the executable into memory for booting
+    if (ResultStatus::Success != result) {
         return result;
+    }
 
     system.ArchiveManager().RegisterSelfNCCH(*this);
 

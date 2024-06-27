@@ -13,8 +13,8 @@
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/shared_memory.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/kernel/shared_page.h"
 #include "core/hle/result.h"
 #include "core/hle/service/nwm/nwm_uds.h"
@@ -573,7 +573,7 @@ void NWM_UDS::Shutdown(Kernel::HLERequestContext& ctx) {
     channel_data.clear();
     node_map.clear();
 
-    recv_buffer_memory.reset();
+    recv_buffer_memory = nullptr;
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(ResultSuccess);
@@ -598,7 +598,7 @@ void NWM_UDS::RecvBeaconBroadcastData(Kernel::HLERequestContext& ctx) {
     // 'Official user processes create a new event handle which is then passed to this command.
     // However, those user processes don't save that handle anywhere afterwards.'
     // So we don't save/use that event too.
-    std::shared_ptr<Kernel::Event> input_event = rp.PopObject<Kernel::Event>();
+    [[maybe_unused]] Kernel::KEvent* input_event = rp.PopObject<Kernel::KEvent>();
 
     Kernel::MappedBuffer out_buffer = rp.PopMappedBuffer();
     ASSERT(out_buffer.GetSize() == out_buffer_size);
@@ -645,9 +645,8 @@ void NWM_UDS::RecvBeaconBroadcastData(Kernel::HLERequestContext& ctx) {
               out_buffer_size, wlan_comm_id, id, unk1, unk2, cur_buffer_size);
 }
 
-ResultVal<std::shared_ptr<Kernel::Event>> NWM_UDS::Initialize(
-    u32 sharedmem_size, const NodeInfo& node, u16 version,
-    std::shared_ptr<Kernel::SharedMemory> sharedmem) {
+ResultVal<Kernel::KEvent*> NWM_UDS::Initialize(u32 sharedmem_size, const NodeInfo& node,
+                                               u16 version, Kernel::KSharedMemory* sharedmem) {
 
     current_node = node;
     initialized = true;
@@ -675,7 +674,7 @@ void NWM_UDS::InitializeWithVersion(Kernel::HLERequestContext& ctx) {
     u32 sharedmem_size = rp.Pop<u32>();
     auto node = rp.PopRaw<NodeInfo>();
     u16 version = rp.Pop<u16>();
-    auto sharedmem = rp.PopObject<Kernel::SharedMemory>();
+    auto sharedmem = rp.PopObject<Kernel::KSharedMemory>();
 
     auto result = Initialize(sharedmem_size, node, version, std::move(sharedmem));
 
@@ -691,7 +690,7 @@ void NWM_UDS::InitializeDeprecated(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     u32 sharedmem_size = rp.Pop<u32>();
     auto node = rp.PopRaw<NodeInfo>();
-    auto sharedmem = rp.PopObject<Kernel::SharedMemory>();
+    auto sharedmem = rp.PopObject<Kernel::KSharedMemory>();
 
     // The deprecated version uses fixed 0x100 as the version
     auto result = Initialize(sharedmem_size, node, 0x100, std::move(sharedmem));
@@ -791,7 +790,7 @@ void NWM_UDS::Bind(Kernel::HLERequestContext& ctx) {
     }
 
     // Create a new event for this bind node.
-    auto event = system.Kernel().CreateEvent(Kernel::ResetType::OneShot,
+    auto event = service_context.CreateEvent(Kernel::ResetType::OneShot,
                                              "NWM::BindNodeEvent" + std::to_string(bind_node_id));
     std::scoped_lock lock(connection_status_mutex);
 
@@ -1248,7 +1247,7 @@ class NWM_UDS::ThreadCallback : public Kernel::HLERequestContext::WakeupCallback
 public:
     explicit ThreadCallback(u16 command_id_) : command_id(command_id_) {}
 
-    void WakeUp(std::shared_ptr<Kernel::Thread> thread, Kernel::HLERequestContext& ctx,
+    void WakeUp(Kernel::KThread* thread, Kernel::HLERequestContext& ctx,
                 Kernel::ThreadWakeupReason reason) {
         // TODO(B3N30): Add error handling for host full and timeout
         IPC::RequestBuilder rb(ctx, command_id, 1, 0);
@@ -1450,7 +1449,8 @@ void NWM_UDS::BeaconBroadcastCallback(std::uintptr_t user_data, s64 cycles_late)
                                       beacon_broadcast_event, 0);
 }
 
-NWM_UDS::NWM_UDS(Core::System& system) : ServiceFramework("nwm::UDS"), system(system) {
+NWM_UDS::NWM_UDS(Core::System& system)
+    : ServiceFramework("nwm::UDS"), system(system), service_context(system) {
     static const FunctionInfo functions[] = {
         // clang-format off
         {0x0001, &NWM_UDS::InitializeDeprecated, "Initialize (deprecated)"},
@@ -1485,7 +1485,7 @@ NWM_UDS::NWM_UDS(Core::System& system) : ServiceFramework("nwm::UDS"), system(sy
         // clang-format on
     };
     connection_status_event =
-        system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "NWM::connection_status_event");
+        service_context.CreateEvent(Kernel::ResetType::OneShot, "NWM::connection_status_event");
 
     RegisterHandlers(functions);
 

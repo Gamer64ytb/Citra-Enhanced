@@ -8,7 +8,7 @@
 
 #include <span>
 #include "common/common_types.h"
-#include "core/hle/kernel/thread.h"
+#include "core/hle/kernel/k_thread.h"
 
 namespace Core {
 class System;
@@ -118,7 +118,7 @@ void SetCpuStepFlag(bool is_step);
  * @param thread Sending thread.
  * @param trap Trap no.
  */
-void SendTrap(Kernel::Thread* thread, int trap);
+void SendTrap(Kernel::KThread* thread, int trap);
 
 /**
  * Send reply to gdb client.

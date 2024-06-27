@@ -17,8 +17,9 @@
 #include "core/file_sys/cia_container.h"
 #include "core/file_sys/file_backend.h"
 #include "core/global.h"
-#include "core/hle/kernel/mutex.h"
+#include "core/hle/kernel/k_mutex.h"
 #include "core/hle/result.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -780,9 +781,10 @@ private:
     void ScanForAllTitles();
 
     Core::System& system;
+    KernelHelpers::ServiceContext service_context;
     bool cia_installing = false;
     std::array<std::vector<u64_le>, 3> am_title_list;
-    std::shared_ptr<Kernel::Mutex> system_updater_mutex;
+    Kernel::KMutex* system_updater_mutex;
     CTCert ct_cert{};
 
     template <class Archive>

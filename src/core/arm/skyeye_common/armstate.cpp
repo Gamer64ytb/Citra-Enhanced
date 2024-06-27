@@ -609,8 +609,8 @@ void ARMul_State::ServeBreak() {
         DEBUG_ASSERT(Reg[15] == last_bkpt.address);
     }
 
-    Kernel::Thread* thread = system.Kernel().GetCurrentThreadManager().GetCurrentThread();
-    system.GetRunningCore().SaveContext(thread->context);
+    Kernel::KThread* thread = system.Kernel().GetCurrentThreadManager().GetCurrentThread();
+    system.GetRunningCore().SaveContext(thread->GetContext());
 
     if (last_bkpt_hit || GDBStub::IsMemoryBreak() || GDBStub::GetCpuStepFlag()) {
         last_bkpt_hit = false;

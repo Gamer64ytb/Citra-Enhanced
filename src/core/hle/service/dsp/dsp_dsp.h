@@ -9,8 +9,8 @@
 #include <boost/serialization/base_object.hpp>
 #include <boost/serialization/shared_ptr.hpp>
 #include "audio_core/dsp_interface.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/result.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -20,7 +20,12 @@ class System;
 namespace Service::DSP {
 
 /// There are three types of interrupts
-enum class InterruptType : u32 { Zero = 0, One = 1, Pipe = 2, Count };
+enum class InterruptType : u32 {
+    Zero = 0,
+    One = 1,
+    Pipe = 2,
+    Count,
+};
 
 class DSP_DSP final : public ServiceFramework<DSP_DSP> {
 public:
@@ -31,6 +36,10 @@ public:
     static constexpr std::size_t max_number_of_interrupt_events = 6;
 
     /// Signal interrupt on pipe
+    /// The audio-pipe interrupt occurs every frame tick. Userland programs normally have a thread
+    /// that's waiting for an interrupt event. Immediately after this interrupt event, userland
+    /// normally updates the state in the next region and increments the relevant frame counter by
+    /// two.
     void SignalInterrupt(InterruptType type, AudioCore::DspPipe pipe);
 
 private:
@@ -252,20 +261,24 @@ private:
     void ForceHeadphoneOut(Kernel::HLERequestContext& ctx);
 
     /// Returns the Interrupt Event for a given pipe
-    std::shared_ptr<Kernel::Event>& GetInterruptEvent(InterruptType type, AudioCore::DspPipe pipe);
+    Kernel::KEvent* GetInterruptEvent(InterruptType type, AudioCore::DspPipe pipe);
+
+    /// Sets the Interrupt Event for a given pipe
+    void SetInterruptEvent(InterruptType type, AudioCore::DspPipe pipe, Kernel::KEvent* event);
+
     /// Checks if we are trying to register more than 6 events
     bool HasTooManyEventsRegistered() const;
 
     Core::System& system;
+    KernelHelpers::ServiceContext service_context;
 
-    std::shared_ptr<Kernel::Event> semaphore_event;
     u16 preset_semaphore = 0;
-
-    std::shared_ptr<Kernel::Event> interrupt_zero = nullptr; /// Currently unknown purpose
-    std::shared_ptr<Kernel::Event> interrupt_one = nullptr;  /// Currently unknown purpose
+    Kernel::KEvent* semaphore_event{};
+    Kernel::KEvent* interrupt_zero{}; /// Currently unknown purpose
+    Kernel::KEvent* interrupt_one{};  /// Currently unknown purpose
 
     /// Each DSP pipe has an associated interrupt
-    std::array<std::shared_ptr<Kernel::Event>, AudioCore::num_dsp_pipe> pipes = {{}};
+    std::array<Kernel::KEvent*, AudioCore::num_dsp_pipe> pipes{};
 
     template <class Archive>
     void serialize(Archive& ar, const unsigned int) {

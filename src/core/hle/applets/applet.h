@@ -8,6 +8,10 @@
 #include "core/hle/result.h"
 #include "core/hle/service/apt/applet_manager.h"
 
+namespace Core {
+class System;
+}
+
 namespace HLE::Applets {
 
 class Applet {
@@ -39,7 +43,8 @@ public:
 protected:
     Applet(Core::System& system, Service::APT::AppletId id, Service::APT::AppletId parent,
            bool preload, std::weak_ptr<Service::APT::AppletManager> manager)
-        : system(system), id(id), parent(parent), preload(preload), manager(std::move(manager)) {}
+        : system(system), id(id), parent(parent), preload(preload), service_context(system),
+          manager(std::move(manager)) {}
 
     /**
      * Handles a parameter from the application.
@@ -62,11 +67,11 @@ protected:
     virtual Result Finalize() = 0;
 
     Core::System& system;
-
     Service::APT::AppletId id;                    ///< Id of this Applet
     Service::APT::AppletId parent;                ///< Id of this Applet's parent
     bool preload;                                 ///< Whether the Applet is being preloaded.
     std::shared_ptr<std::vector<u8>> heap_memory; ///< Heap memory for this Applet
+    Service::KernelHelpers::ServiceContext service_context;
 
     /// Whether this applet is running.
     bool is_running = true;
@@ -75,7 +80,7 @@ protected:
     bool is_active = false;
 
     void SendParameter(const Service::APT::MessageParameter& parameter);
-    void CloseApplet(std::shared_ptr<Kernel::Object> object, const std::vector<u8>& buffer);
+    void CloseApplet(Kernel::KAutoObject* object, const std::vector<u8>& buffer);
 
 private:
     std::weak_ptr<Service::APT::AppletManager> manager;

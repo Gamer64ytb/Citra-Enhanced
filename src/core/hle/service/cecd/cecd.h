@@ -8,8 +8,9 @@
 #include <span>
 #include "common/bit_field.h"
 #include "common/common_funcs.h"
-#include "core/hle/kernel/event.h"
+#include "core/hle/kernel/k_event.h"
 #include "core/hle/service/fs/archive.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace FileSys {
@@ -624,11 +625,12 @@ private:
 
     std::unique_ptr<FileSys::ArchiveBackend> cecd_system_save_data_archive;
 
-    std::shared_ptr<Kernel::Event> cecinfo_event;
-    std::shared_ptr<Kernel::Event> cecinfosys_event;
-    std::shared_ptr<Kernel::Event> change_state_event;
+    Kernel::KEvent* cecinfo_event;
+    Kernel::KEvent* cecinfosys_event;
+    Kernel::KEvent* change_state_event;
 
     Core::System& system;
+    KernelHelpers::ServiceContext service_context;
 
     template <class Archive>
     void serialize(Archive& ar, const unsigned int);

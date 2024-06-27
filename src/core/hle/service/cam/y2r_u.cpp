@@ -10,8 +10,8 @@
 #include "common/scope_exit.h"
 #include "core/core.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/process.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/hle/service/cam/y2r_u.h"
 #include "core/hw/y2r.h"
 
@@ -664,7 +664,8 @@ void Y2R_U::GetPackageParameter(Kernel::HLERequestContext& ctx) {
     LOG_DEBUG(Service_Y2R, "called");
 }
 
-Y2R_U::Y2R_U(Core::System& system) : ServiceFramework("y2r:u", 1), system(system) {
+Y2R_U::Y2R_U(Core::System& system)
+    : ServiceFramework("y2r:u", 1), system(system), service_context(system) {
     static const FunctionInfo functions[] = {
         // clang-format off
         {0x0001, &Y2R_U::SetInputFormat, "SetInputFormat"},
@@ -716,7 +717,7 @@ Y2R_U::Y2R_U(Core::System& system) : ServiceFramework("y2r:u", 1), system(system
     };
     RegisterHandlers(functions);
 
-    completion_event = system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "Y2R:Completed");
+    completion_event = service_context.CreateEvent(Kernel::ResetType::OneShot, "Y2R:Completed");
     completion_signal_event =
         system.CoreTiming().RegisterEvent("Y2R Completion Signal Event", [this](uintptr_t, s64) {
             completion_event->Signal();

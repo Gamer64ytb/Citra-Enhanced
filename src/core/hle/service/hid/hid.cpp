@@ -13,9 +13,8 @@
 #include "core/3ds.h"
 #include "core/core.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/handle_table.h"
-#include "core/hle/kernel/shared_memory.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/kernel/shared_page.h"
 #include "core/hle/service/hid/hid.h"
 #include "core/hle/service/hid/hid_spvr.h"
@@ -420,21 +419,19 @@ std::shared_ptr<Module> Module::Interface::GetModule() const {
     return hid;
 }
 
-Module::Module(Core::System& system) : system(system) {
+Module::Module(Core::System& system) : system(system), service_context(system) {
     using namespace Kernel;
 
-    shared_mem =
-        system.Kernel()
-            .CreateSharedMemory(nullptr, 0x1000, MemoryPermission::ReadWrite,
-                                MemoryPermission::Read, 0, MemoryRegion::BASE, "HID:SharedMemory")
-            .Unwrap();
+    shared_mem = service_context.CreateSharedMemory(0x1000, MemoryPermission::ReadWrite,
+                                                    MemoryPermission::Read, 0, MemoryRegion::BASE,
+                                                    "HID:SharedMemory");
 
     // Create event handles
-    event_pad_or_touch_1 = system.Kernel().CreateEvent(ResetType::OneShot, "HID:EventPadOrTouch1");
-    event_pad_or_touch_2 = system.Kernel().CreateEvent(ResetType::OneShot, "HID:EventPadOrTouch2");
-    event_accelerometer = system.Kernel().CreateEvent(ResetType::OneShot, "HID:EventAccelerometer");
-    event_gyroscope = system.Kernel().CreateEvent(ResetType::OneShot, "HID:EventGyroscope");
-    event_debug_pad = system.Kernel().CreateEvent(ResetType::OneShot, "HID:EventDebugPad");
+    event_pad_or_touch_1 = service_context.CreateEvent(ResetType::OneShot, "HID:EventPadOrTouch1");
+    event_pad_or_touch_2 = service_context.CreateEvent(ResetType::OneShot, "HID:EventPadOrTouch2");
+    event_accelerometer = service_context.CreateEvent(ResetType::OneShot, "HID:EventAccelerometer");
+    event_gyroscope = service_context.CreateEvent(ResetType::OneShot, "HID:EventGyroscope");
+    event_debug_pad = service_context.CreateEvent(ResetType::OneShot, "HID:EventDebugPad");
 
     // Register update callbacks
     Core::Timing& timing = system.CoreTiming();

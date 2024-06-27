@@ -7,8 +7,7 @@
 #include <memory>
 #include <boost/serialization/array.hpp>
 #include <boost/serialization/shared_ptr.hpp>
-#include "core/hle/kernel/mutex.h"
-#include "core/hle/kernel/shared_memory.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -238,9 +237,10 @@ private:
     void Reset(Kernel::HLERequestContext& ctx);
 
     Core::System& system;
+    KernelHelpers::ServiceContext service_context;
 
-    std::shared_ptr<Kernel::Mutex> mutex = nullptr;
-    std::shared_ptr<Kernel::SharedMemory> shared_memory = nullptr;
+    Kernel::KMutex* mutex = nullptr;
+    Kernel::KSharedMemory* shared_memory = nullptr;
 
     static constexpr u32 MaxCaptureUnits = 2;
     std::array<bool, MaxCaptureUnits> capture_units = {false, false};

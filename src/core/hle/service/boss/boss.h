@@ -7,9 +7,9 @@
 #include <memory>
 #include <boost/serialization/export.hpp>
 #include "core/global.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/resource_limit.h"
+#include "core/hle/kernel/k_event.h"
 #include "core/hle/service/boss/online_service.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -978,7 +978,8 @@ public:
 
 private:
     Core::System& system;
-    std::shared_ptr<Kernel::Event> task_finish_event;
+    KernelHelpers::ServiceContext service_context;
+    Kernel::KEvent* task_finish_event{};
 
     u8 new_arrival_flag;
     u8 ns_data_new_flag;

@@ -11,10 +11,11 @@
 #include <boost/serialization/export.hpp>
 #include "common/bit_field.h"
 #include "common/common_types.h"
-#include "core/hle/kernel/event.h"
 #include "core/hle/kernel/hle_ipc.h"
+#include "core/hle/kernel/k_event.h"
 #include "core/hle/service/gsp/gsp_command.h"
 #include "core/hle/service/gsp/gsp_interrupt.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -22,9 +23,7 @@ class System;
 }
 
 namespace Kernel {
-class HLERequestContext;
-class Process;
-class SharedMemory;
+class KSharedMemory;
 } // namespace Kernel
 
 namespace Service::GSP {
@@ -75,7 +74,7 @@ public:
     GSP_GPU* gsp;
 
     /// Event triggered when GSP interrupt has been signalled
-    std::shared_ptr<Kernel::Event> interrupt_event;
+    Kernel::KEvent* interrupt_event;
     /// Thread index into interrupt relay queue
     u32 thread_id;
     /// Whether RegisterInterruptRelayQueue was called for this session
@@ -92,7 +91,7 @@ public:
     explicit GSP_GPU(Core::System& system);
     ~GSP_GPU() = default;
 
-    void ClientDisconnected(std::shared_ptr<Kernel::ServerSession> server_session) override;
+    void ClientDisconnected(Kernel::KServerSession* server_session) override;
 
     /**
      * Signals that the specified interrupt type has occurred to userland code
@@ -366,14 +365,14 @@ private:
 
     std::unique_ptr<Kernel::SessionRequestHandler::SessionDataBase> MakeSessionData() override;
 
-    Result AcquireGpuRight(const Kernel::HLERequestContext& ctx,
-                           const std::shared_ptr<Kernel::Process>& process, u32 flag,
-                           bool blocking);
+    Result AcquireGpuRight(const Kernel::HLERequestContext& ctx, const Kernel::Process* process,
+                           u32 flag, bool blocking);
 
     Core::System& system;
+    KernelHelpers::ServiceContext service_context;
 
     /// GSP shared memory
-    std::shared_ptr<Kernel::SharedMemory> shared_memory;
+    Kernel::KSharedMemory* shared_memory;
 
     /// Thread id that currently has GPU rights or std::numeric_limits<u32>::max() if none.
     u32 active_thread_id = std::numeric_limits<u32>::max();

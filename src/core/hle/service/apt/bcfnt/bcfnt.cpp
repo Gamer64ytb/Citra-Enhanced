@@ -7,7 +7,7 @@
 
 namespace Service::APT::BCFNT {
 
-void RelocateSharedFont(std::shared_ptr<Kernel::SharedMemory> shared_font, VAddr new_address) {
+void RelocateSharedFont(Kernel::KSharedMemory* shared_font, VAddr new_address) {
     static const u32 SharedFontStartOffset = 0x80;
     const u8* cfnt_ptr = shared_font->GetPointer(SharedFontStartOffset);
 

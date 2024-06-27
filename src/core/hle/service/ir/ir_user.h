@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <span>
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Kernel {
@@ -163,8 +164,11 @@ private:
 
     void PutToReceive(std::span<const u8> payload);
 
-    std::shared_ptr<Kernel::Event> conn_status_event, send_event, receive_event;
-    std::shared_ptr<Kernel::SharedMemory> shared_memory;
+    KernelHelpers::ServiceContext service_context;
+    Kernel::KEvent* conn_status_event;
+    Kernel::KEvent* send_event;
+    Kernel::KEvent* receive_event;
+    Kernel::KSharedMemory* shared_memory;
     bool connected_device;
     std::unique_ptr<BufferManager> receive_buffer;
     std::unique_ptr<ExtraHID> extra_hid;

@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <memory>
 #include <unordered_map>
 #include <boost/serialization/export.hpp>
 #include "core/hle/service/service.h"
@@ -15,7 +14,8 @@ class System;
 
 namespace Kernel {
 class HLERequestContext;
-class Semaphore;
+class KSemaphore;
+class KEvent;
 } // namespace Kernel
 
 namespace Service::SM {
@@ -38,8 +38,8 @@ private:
     void RegisterService(Kernel::HLERequestContext& ctx);
 
     Core::System& system;
-    std::shared_ptr<Kernel::Semaphore> notification_semaphore;
-    std::unordered_map<std::string, std::shared_ptr<Kernel::Event>> get_service_handle_delayed_map;
+    Kernel::KSemaphore* notification_semaphore;
+    std::unordered_map<std::string, Kernel::KEvent*> get_service_handle_delayed_map;
 
     template <class Archive>
     void serialize(Archive& ar, const unsigned int);

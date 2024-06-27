@@ -47,10 +47,10 @@ void Applet::SendParameter(const Service::APT::MessageParameter& parameter) {
     }
 }
 
-void Applet::CloseApplet(std::shared_ptr<Kernel::Object> object, const std::vector<u8>& buffer) {
+void Applet::CloseApplet(Kernel::KAutoObject* object, const std::vector<u8>& buffer) {
     if (auto locked = manager.lock()) {
         locked->PrepareToCloseLibraryApplet(true, false, false);
-        locked->CloseLibraryApplet(std::move(object), buffer);
+        locked->CloseLibraryApplet(object, buffer);
     } else {
         LOG_ERROR(Service_APT, "called after destructing applet manager");
     }

@@ -19,6 +19,7 @@
 #include "core/global.h"
 #include "core/hle/result.h"
 #include "core/hle/service/cam/cam_params.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -710,9 +711,9 @@ private:
 
         u16 transfer_bytes{256};
 
-        std::shared_ptr<Kernel::Event> completion_event;
-        std::shared_ptr<Kernel::Event> buffer_error_interrupt_event;
-        std::shared_ptr<Kernel::Event> vsync_interrupt_event;
+        Kernel::KEvent* completion_event;
+        Kernel::KEvent* buffer_error_interrupt_event;
+        Kernel::KEvent* vsync_interrupt_event;
 
         std::deque<s64> vsync_timings;
 
@@ -753,6 +754,7 @@ private:
 
     Core::System& system;
     bool initialized{};
+    KernelHelpers::ServiceContext service_context;
     std::array<CameraConfig, NumCameras> cameras;
     std::array<PortConfig, 2> ports;
     Core::TimingEventType* completion_event_callback;

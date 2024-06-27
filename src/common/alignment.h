@@ -21,4 +21,10 @@ template <typename T>
     return static_cast<T>(value - value % size);
 }
 
+template <typename T>
+    requires std::is_unsigned_v<T>
+[[nodiscard]] constexpr bool Is4KBAligned(T value) {
+    return (value & 0xFFF) == 0;
+}
+
 } // namespace Common

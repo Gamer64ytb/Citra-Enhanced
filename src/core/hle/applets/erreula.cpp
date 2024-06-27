@@ -5,6 +5,7 @@
 #include "common/string_util.h"
 #include "core/core.h"
 #include "core/hle/applets/erreula.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/service/apt/apt.h"
 
 namespace HLE::Applets {
@@ -28,7 +29,7 @@ Result ErrEula::ReceiveParameterImpl(const Service::APT::MessageParameter& param
     // TODO: allocated memory never released
     using Kernel::MemoryPermission;
     // Create a SharedMemory that directly points to this heap block.
-    framebuffer_memory = system.Kernel().CreateSharedMemoryForApplet(
+    framebuffer_memory = service_context.CreateSharedMemoryForApplet(
         0, capture_info.size, MemoryPermission::ReadWrite, MemoryPermission::ReadWrite,
         "ErrEula Memory");
 

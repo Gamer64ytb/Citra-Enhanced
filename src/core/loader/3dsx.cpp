@@ -6,8 +6,8 @@
 #include <vector>
 #include "common/logging/log.h"
 #include "core/core.h"
-#include "core/hle/kernel/process.h"
-#include "core/hle/kernel/resource_limit.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_resource_limit.h"
 #include "core/hle/service/fs/archive.h"
 #include "core/hle/service/fs/fs_user.h"
 #include "core/loader/3dsx.h"
@@ -85,26 +85,29 @@ struct THREEloadinfo {
 };
 
 static u32 TranslateAddr(u32 addr, const THREEloadinfo* loadinfo, u32* offsets) {
-    if (addr < offsets[0])
+    if (addr < offsets[0]) {
         return loadinfo->seg_addrs[0] + addr;
-    if (addr < offsets[1])
+    }
+    if (addr < offsets[1]) {
         return loadinfo->seg_addrs[1] + addr - offsets[0];
+    }
     return loadinfo->seg_addrs[2] + addr - offsets[1];
 }
 
 using Kernel::CodeSet;
 
-static THREEDSX_Error Load3DSXFile(Core::System& system, FileUtil::IOFile& file, u32 base_addr,
-                                   std::shared_ptr<CodeSet>* out_codeset) {
-    if (!file.IsOpen())
+static THREEDSX_Error Load3DSXFile(CodeSet& codeset, FileUtil::IOFile& file, u32 base_addr) {
+    if (!file.IsOpen()) {
         return ERROR_FILE;
+    }
 
     // Reset read pointer in case this file has been read before.
     file.Seek(0, SEEK_SET);
 
     THREEDSX_Header hdr;
-    if (file.ReadBytes(&hdr, sizeof(hdr)) != sizeof(hdr))
+    if (file.ReadBytes(&hdr, sizeof(hdr)) != sizeof(hdr)) {
         return ERROR_READ;
+    }
 
     THREEloadinfo loadinfo;
     // loadinfo segments must be a multiple of 0x1000
@@ -149,7 +152,7 @@ static THREEDSX_Error Load3DSXFile(Core::System& system, FileUtil::IOFile& file,
         return ERROR_READ;
 
     // BSS clear
-    std::memset((char*)loadinfo.seg_ptrs[2] + hdr.data_seg_size - hdr.bss_size, 0, hdr.bss_size);
+    std::memset(loadinfo.seg_ptrs[2] + hdr.data_seg_size - hdr.bss_size, 0, hdr.bss_size);
 
     // Relocate the segments
     for (unsigned int current_segment = 0; current_segment < NUM_SEGMENTS; ++current_segment) {
@@ -221,71 +224,81 @@ static THREEDSX_Error Load3DSXFile(Core::System& system, FileUtil::IOFile& file,
         }
     }
 
-    // Create the CodeSet
-    std::shared_ptr<CodeSet> code_set = system.Kernel().CreateCodeSet("", 0);
+    // Initialize the CodeSet
+    codeset.CodeSegment().offset = loadinfo.seg_ptrs[0] - program_image.data();
+    codeset.CodeSegment().addr = loadinfo.seg_addrs[0];
+    codeset.CodeSegment().size = loadinfo.seg_sizes[0];
 
-    code_set->CodeSegment().offset = loadinfo.seg_ptrs[0] - program_image.data();
-    code_set->CodeSegment().addr = loadinfo.seg_addrs[0];
-    code_set->CodeSegment().size = loadinfo.seg_sizes[0];
+    codeset.RODataSegment().offset = loadinfo.seg_ptrs[1] - program_image.data();
+    codeset.RODataSegment().addr = loadinfo.seg_addrs[1];
+    codeset.RODataSegment().size = loadinfo.seg_sizes[1];
 
-    code_set->RODataSegment().offset = loadinfo.seg_ptrs[1] - program_image.data();
-    code_set->RODataSegment().addr = loadinfo.seg_addrs[1];
-    code_set->RODataSegment().size = loadinfo.seg_sizes[1];
+    codeset.DataSegment().offset = loadinfo.seg_ptrs[2] - program_image.data();
+    codeset.DataSegment().addr = loadinfo.seg_addrs[2];
+    codeset.DataSegment().size = loadinfo.seg_sizes[2];
 
-    code_set->DataSegment().offset = loadinfo.seg_ptrs[2] - program_image.data();
-    code_set->DataSegment().addr = loadinfo.seg_addrs[2];
-    code_set->DataSegment().size = loadinfo.seg_sizes[2];
-
-    code_set->entrypoint = code_set->CodeSegment().addr;
-    code_set->memory = std::move(program_image);
+    codeset.entrypoint = codeset.CodeSegment().addr;
+    codeset.memory = std::move(program_image);
 
     LOG_DEBUG(Loader, "code size:   {:#X}", loadinfo.seg_sizes[0]);
     LOG_DEBUG(Loader, "rodata size: {:#X}", loadinfo.seg_sizes[1]);
     LOG_DEBUG(Loader, "data size:   {:#X} (including {:#X} of bss)", loadinfo.seg_sizes[2],
               hdr.bss_size);
 
-    *out_codeset = code_set;
     return ERROR_NONE;
 }
 
 FileType AppLoader_THREEDSX::IdentifyType(FileUtil::IOFile& file) {
     u32 magic;
     file.Seek(0, SEEK_SET);
-    if (1 != file.ReadArray<u32>(&magic, 1))
+    if (1 != file.ReadArray<u32>(&magic, 1)) {
         return FileType::Error;
-
-    if (MakeMagic('3', 'D', 'S', 'X') == magic)
+    }
+    if (MakeMagic('3', 'D', 'S', 'X') == magic) {
         return FileType::THREEDSX;
-
+    }
     return FileType::Error;
 }
 
-ResultStatus AppLoader_THREEDSX::Load(std::shared_ptr<Kernel::Process>& process) {
-    if (is_loaded)
+ResultStatus AppLoader_THREEDSX::Load(Kernel::Process** out_process) {
+    if (is_loaded) {
         return ResultStatus::ErrorAlreadyLoaded;
+    }
 
-    if (!file.IsOpen())
+    if (!file.IsOpen()) {
         return ResultStatus::Error;
+    }
 
-    std::shared_ptr<CodeSet> codeset;
-    if (Load3DSXFile(system, file, Memory::PROCESS_IMAGE_VADDR, &codeset) != ERROR_NONE)
+    // Create the process
+    auto& kernel = system.Kernel();
+    auto* process = Kernel::Process::Create(kernel);
+
+    // Register the process.
+    process->Initialize();
+    Kernel::Process::Register(kernel, process);
+
+    // Load 3DSX file to process codeset.
+    process->codeset.name = filename;
+    if (Load3DSXFile(process->codeset, file, Memory::PROCESS_IMAGE_VADDR) != ERROR_NONE) {
         return ResultStatus::Error;
-    codeset->name = filename;
+    }
 
-    process = system.Kernel().CreateProcess(std::move(codeset));
+    // Update process capabilities.
     process->Set3dsxKernelCaps();
 
     // Attach the default resource limit (APPLICATION) to the process
     process->resource_limit =
-        system.Kernel().ResourceLimit().GetForCategory(Kernel::ResourceLimitCategory::Application);
+        kernel.ResourceLimit().GetForCategory(Kernel::ResourceLimitCategory::Application);
 
     // On real HW this is done with FS:Reg, but we can be lazy
     auto fs_user = system.ServiceManager().GetService<Service::FS::FS_USER>("fs:USER");
-    fs_user->RegisterProgramInfo(process->GetObjectId(), process->codeset->program_id, filepath);
+    fs_user->RegisterProgramInfo(/*process->GetObjectId()*/ 5, process->codeset.program_id,
+                                 filepath);
 
-    process->Run(48, Kernel::DEFAULT_STACK_SIZE);
-
+    // Run the process.
+    process->Run(48, Kernel::DefaultStackSize);
     system.ArchiveManager().RegisterSelfNCCH(*this);
+    *out_process = process;
 
     is_loaded = true;
     return ResultStatus::Success;

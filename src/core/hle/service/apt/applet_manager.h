@@ -14,13 +14,21 @@
 #include <boost/serialization/shared_ptr.hpp>
 #include <boost/serialization/vector.hpp>
 #include "core/frontend/input.h"
-#include "core/global.h"
-#include "core/hle/kernel/event.h"
 #include "core/hle/result.h"
-#include "core/hle/service/fs/archive.h"
+#include "core/hle/service/kernel_helpers.h"
+#include "core/hle/service/service.h"
 
 namespace Core {
 class System;
+struct TimingEventType;
+} // namespace Core
+
+namespace Kernel {
+class KEvent;
+}
+
+namespace Service::FS {
+enum class MediaType : u32;
 }
 
 namespace HLE::Applets {
@@ -123,7 +131,7 @@ struct MessageParameter {
     AppletId sender_id = AppletId::None;
     AppletId destination_id = AppletId::None;
     SignalType signal = SignalType::None;
-    std::shared_ptr<Kernel::Object> object = nullptr;
+    Kernel::KAutoObject* object = nullptr;
     std::vector<u8> buffer;
 
 private:
@@ -278,13 +286,13 @@ public:
     struct GetLockHandleResult {
         AppletAttributes corrected_attributes;
         u32 state;
-        std::shared_ptr<Kernel::Mutex> lock;
+        Kernel::KMutex* lock;
     };
     ResultVal<GetLockHandleResult> GetLockHandle(AppletAttributes attributes);
 
     struct InitializeResult {
-        std::shared_ptr<Kernel::Event> notification_event;
-        std::shared_ptr<Kernel::Event> parameter_event;
+        Kernel::KEvent* notification_event;
+        Kernel::KEvent* parameter_event;
     };
     ResultVal<InitializeResult> Initialize(AppletId app_id, AppletAttributes attributes);
 
@@ -300,31 +308,30 @@ public:
     Result PrepareToStartLibraryApplet(AppletId applet_id);
     Result PreloadLibraryApplet(AppletId applet_id);
     Result FinishPreloadingLibraryApplet(AppletId applet_id);
-    Result StartLibraryApplet(AppletId applet_id, std::shared_ptr<Kernel::Object> object,
+    Result StartLibraryApplet(AppletId applet_id, Kernel::KAutoObject* object,
                               const std::vector<u8>& buffer);
     Result PrepareToCloseLibraryApplet(bool not_pause, bool exiting, bool jump_home);
-    Result CloseLibraryApplet(std::shared_ptr<Kernel::Object> object,
-                              const std::vector<u8>& buffer);
+    Result CloseLibraryApplet(Kernel::KAutoObject* object, const std::vector<u8>& buffer);
     Result CancelLibraryApplet(bool app_exiting);
 
-    Result SendDspSleep(AppletId from_applet_id, std::shared_ptr<Kernel::Object> object);
-    Result SendDspWakeUp(AppletId from_applet_id, std::shared_ptr<Kernel::Object> object);
+    Result SendDspSleep(AppletId from_applet_id, Kernel::KAutoObject* object);
+    Result SendDspWakeUp(AppletId from_applet_id, Kernel::KAutoObject* object);
 
     Result PrepareToStartSystemApplet(AppletId applet_id);
-    Result StartSystemApplet(AppletId applet_id, std::shared_ptr<Kernel::Object> object,
+    Result StartSystemApplet(AppletId applet_id, Kernel::KAutoObject* object,
                              const std::vector<u8>& buffer);
     Result PrepareToCloseSystemApplet();
-    Result CloseSystemApplet(std::shared_ptr<Kernel::Object> object, const std::vector<u8>& buffer);
+    Result CloseSystemApplet(Kernel::KAutoObject* object, const std::vector<u8>& buffer);
     Result OrderToCloseSystemApplet();
 
     Result PrepareToJumpToHomeMenu();
-    Result JumpToHomeMenu(std::shared_ptr<Kernel::Object> object, const std::vector<u8>& buffer);
+    Result JumpToHomeMenu(Kernel::KAutoObject* object, const std::vector<u8>& buffer);
     Result PrepareToLeaveHomeMenu();
-    Result LeaveHomeMenu(std::shared_ptr<Kernel::Object> object, const std::vector<u8>& buffer);
+    Result LeaveHomeMenu(Kernel::KAutoObject* object, const std::vector<u8>& buffer);
 
     Result OrderToCloseApplication();
     Result PrepareToCloseApplication(bool return_to_sys);
-    Result CloseApplication(std::shared_ptr<Kernel::Object> object, const std::vector<u8>& buffer);
+    Result CloseApplication(Kernel::KAutoObject* object, const std::vector<u8>& buffer);
 
     Result PrepareToDoApplicationJump(u64 title_id, FS::MediaType media_type,
                                       ApplicationJumpFlags flags);
@@ -373,7 +380,7 @@ public:
     Result PrepareToStartApplication(u64 title_id, FS::MediaType media_type);
     Result StartApplication(const std::vector<u8>& parameter, const std::vector<u8>& hmac,
                             bool paused);
-    Result WakeupApplication(std::shared_ptr<Kernel::Object> object, const std::vector<u8>& buffer);
+    Result WakeupApplication(Kernel::KAutoObject* object, const std::vector<u8>& buffer);
     Result CancelApplication();
 
     struct AppletManInfo {
@@ -404,7 +411,7 @@ public:
 
 private:
     /// APT lock retrieved via GetLockHandle.
-    std::shared_ptr<Kernel::Mutex> lock;
+    Kernel::KMutex* lock;
 
     /// Parameter data to be returned in the next call to Glance/ReceiveParameter.
     // NOTE: A bug in gcc prevents serializing std::optional
@@ -441,8 +448,8 @@ private:
         bool loaded;
         AppletAttributes attributes;
         Notification notification;
-        std::shared_ptr<Kernel::Event> notification_event;
-        std::shared_ptr<Kernel::Event> parameter_event;
+        Kernel::KEvent* notification_event;
+        Kernel::KEvent* parameter_event;
 
         void Reset() {
             applet_id = AppletId::None;
@@ -496,6 +503,7 @@ private:
     bool last_power_button_state = false;
 
     Core::System& system;
+    KernelHelpers::ServiceContext service_context;
 
     AppletSlotData* GetAppletSlot(AppletSlot slot) {
         return &applet_slots[static_cast<std::size_t>(slot)];
@@ -544,7 +552,7 @@ private:
         ar& application_cancelled;
         ar& application_close_target;
         ar& new_3ds_mode_blocked;
-        ar& lock;
+        // ar& lock;
         ar& capture_info;
         ar& applet_slots;
         ar& library_applet_closing_command;

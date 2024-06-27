@@ -145,7 +145,7 @@ void Module::Interface::GetNewArrivalFlag(Kernel::HLERequestContext& ctx) {
 
 void Module::Interface::RegisterNewArrivalEvent(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
-    [[maybe_unused]] const auto event = rp.PopObject<Kernel::Event>();
+    [[maybe_unused]] const auto event = rp.PopObject<Kernel::KEvent>();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(ResultSuccess);
@@ -379,7 +379,7 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
 void Module::Interface::SendPropertyHandle(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     const u16 property_id = rp.Pop<u16>();
-    [[maybe_unused]] const std::shared_ptr<Kernel::Object> object = rp.PopGenericObject();
+    [[maybe_unused]] const auto* object = rp.PopGenericObject();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(ResultSuccess);
@@ -524,7 +524,7 @@ void Module::Interface::GetTaskFinishHandle(Kernel::HLERequestContext& ctx) {
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(ResultSuccess);
-    rb.PushCopyObjects<Kernel::Event>(boss->task_finish_event);
+    rb.PushCopyObjects<Kernel::KEvent>(boss->task_finish_event);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) called");
 }
@@ -1047,11 +1047,11 @@ void Module::Interface::GetNsDataNewFlagPrivileged(Kernel::HLERequestContext& ct
 Module::Interface::Interface(std::shared_ptr<Module> boss, const char* name, u32 max_session)
     : ServiceFramework(name, max_session), boss(std::move(boss)) {}
 
-Module::Module(Core::System& system_) : system(system_) {
+Module::Module(Core::System& system_) : system(system_), service_context(system) {
     using namespace Kernel;
     // TODO: verify ResetType
     task_finish_event =
-        system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "BOSS::task_finish_event");
+        service_context.CreateEvent(Kernel::ResetType::OneShot, "BOSS::task_finish_event");
 }
 
 void InstallInterfaces(Core::System& system) {

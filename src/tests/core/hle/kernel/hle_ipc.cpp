@@ -6,17 +6,35 @@
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/hle/ipc.h"
-#include "core/hle/kernel/client_port.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/handle_table.h"
 #include "core/hle/kernel/hle_ipc.h"
-#include "core/hle/kernel/process.h"
-#include "core/hle/kernel/server_session.h"
+#include "core/hle/kernel/k_client_port.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_handle_table.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_server_session.h"
+#include "core/hle/kernel/k_session.h"
 
 namespace Kernel {
 
-static std::shared_ptr<Object> MakeObject(Kernel::KernelSystem& kernel) {
-    return kernel.CreateEvent(ResetType::OneShot);
+static Kernel::Process* MakeProcess(Kernel::KernelSystem& kernel) {
+    auto* process = Kernel::Process::Create(kernel);
+    process->Initialize();
+    Kernel::Process::Register(kernel, process);
+    return process;
+}
+
+static Kernel::KSession* MakeSession(Kernel::KernelSystem& kernel) {
+    auto* session = Kernel::KSession::Create(kernel);
+    session->Initialize(nullptr);
+    Kernel::KSession::Register(kernel, session);
+    return session;
+}
+
+static Kernel::KAutoObject* MakeObject(Kernel::KernelSystem& kernel) {
+    auto* event = KEvent::Create(kernel);
+    event->Initialize(nullptr, ResetType::OneShot);
+    KEvent::Register(kernel, event);
+    return event;
 }
 
 TEST_CASE("HLERequestContext::PopulateFromIncomingCommandBuffer", "[core][kernel]") {
@@ -26,10 +44,10 @@ TEST_CASE("HLERequestContext::PopulateFromIncomingCommandBuffer", "[core][kernel
     Kernel::KernelSystem kernel(
         memory, timing, [] {}, Kernel::MemoryMode::Prod, 1,
         Kernel::New3dsHwCapabilities{false, false, Kernel::New3dsMemoryMode::Legacy});
-    auto [server, client] = kernel.CreateSessionPair();
-    HLERequestContext context(kernel, std::move(server), nullptr);
+    auto session = MakeSession(kernel);
+    HLERequestContext context(kernel, &session->GetServerSession(), nullptr);
 
-    auto process = kernel.CreateProcess(kernel.CreateCodeSet("", 0));
+    auto process = MakeProcess(kernel);
 
     SECTION("works with empty cmdbuf") {
         const u32_le input[]{
@@ -60,7 +78,7 @@ TEST_CASE("HLERequestContext::PopulateFromIncomingCommandBuffer", "[core][kernel
     SECTION("translates move handles") {
         auto a = MakeObject(kernel);
         Handle a_handle;
-        process->handle_table.Create(std::addressof(a_handle), a);
+        process->handle_table.Add(std::addressof(a_handle), a);
         const u32_le input[]{
             IPC::MakeHeader(0, 0, 2),
             IPC::MoveHandleDesc(1),
@@ -71,13 +89,13 @@ TEST_CASE("HLERequestContext::PopulateFromIncomingCommandBuffer", "[core][kernel
 
         auto* output = context.CommandBuffer();
         REQUIRE(context.GetIncomingHandle(output[2]) == a);
-        REQUIRE(process->handle_table.GetGeneric(a_handle) == nullptr);
+        REQUIRE(process->handle_table.GetObject(a_handle).IsNull());
     }
 
     SECTION("translates copy handles") {
         auto a = MakeObject(kernel);
         Handle a_handle;
-        process->handle_table.Create(std::addressof(a_handle), a);
+        process->handle_table.Add(std::addressof(a_handle), a);
         const u32_le input[]{
             IPC::MakeHeader(0, 0, 2),
             IPC::CopyHandleDesc(1),
@@ -88,7 +106,7 @@ TEST_CASE("HLERequestContext::PopulateFromIncomingCommandBuffer", "[core][kernel
 
         auto* output = context.CommandBuffer();
         REQUIRE(context.GetIncomingHandle(output[2]) == a);
-        REQUIRE(process->handle_table.GetGeneric(a_handle) == a);
+        REQUIRE(process->handle_table.GetObject(a_handle).GetPointerUnsafe() == a);
     }
 
     SECTION("translates multi-handle descriptors") {
@@ -96,9 +114,9 @@ TEST_CASE("HLERequestContext::PopulateFromIncomingCommandBuffer", "[core][kernel
         auto b = MakeObject(kernel);
         auto c = MakeObject(kernel);
         Handle a_handle, b_handle, c_handle;
-        process->handle_table.Create(std::addressof(a_handle), a);
-        process->handle_table.Create(std::addressof(b_handle), b);
-        process->handle_table.Create(std::addressof(c_handle), c);
+        process->handle_table.Add(std::addressof(a_handle), a);
+        process->handle_table.Add(std::addressof(b_handle), b);
+        process->handle_table.Add(std::addressof(c_handle), c);
         const u32_le input[]{
             IPC::MakeHeader(0, 0, 5),
             IPC::MoveHandleDesc(2),
@@ -216,7 +234,7 @@ TEST_CASE("HLERequestContext::PopulateFromIncomingCommandBuffer", "[core][kernel
 
         auto a = MakeObject(kernel);
         Handle a_handle;
-        process->handle_table.Create(std::addressof(a_handle), a);
+        process->handle_table.Add(std::addressof(a_handle), a);
         const u32_le input[]{
             IPC::MakeHeader(0, 2, 8),
             0x12345678,
@@ -259,10 +277,10 @@ TEST_CASE("HLERequestContext::WriteToOutgoingCommandBuffer", "[core][kernel]") {
     Kernel::KernelSystem kernel(
         memory, timing, [] {}, Kernel::MemoryMode::Prod, 1,
         Kernel::New3dsHwCapabilities{false, false, Kernel::New3dsMemoryMode::Legacy});
-    auto [server, client] = kernel.CreateSessionPair();
-    HLERequestContext context(kernel, std::move(server), nullptr);
+    auto session = MakeSession(kernel);
+    HLERequestContext context(kernel, &session->GetServerSession(), nullptr);
 
-    auto process = kernel.CreateProcess(kernel.CreateCodeSet("", 0));
+    auto process = MakeProcess(kernel);
     auto* input = context.CommandBuffer();
     u32_le output[IPC::COMMAND_BUFFER_LENGTH];
 
@@ -298,8 +316,8 @@ TEST_CASE("HLERequestContext::WriteToOutgoingCommandBuffer", "[core][kernel]") {
 
         context.WriteToOutgoingCommandBuffer(output, *process);
 
-        REQUIRE(process->handle_table.GetGeneric(output[2]) == a);
-        REQUIRE(process->handle_table.GetGeneric(output[4]) == b);
+        REQUIRE(process->handle_table.GetObject(output[2]).GetPointerUnsafe() == a);
+        REQUIRE(process->handle_table.GetObject(output[4]).GetPointerUnsafe() == b);
     }
 
     SECTION("translates null handles") {
@@ -326,9 +344,9 @@ TEST_CASE("HLERequestContext::WriteToOutgoingCommandBuffer", "[core][kernel]") {
 
         context.WriteToOutgoingCommandBuffer(output, *process);
 
-        REQUIRE(process->handle_table.GetGeneric(output[2]) == a);
-        REQUIRE(process->handle_table.GetGeneric(output[3]) == b);
-        REQUIRE(process->handle_table.GetGeneric(output[5]) == c);
+        REQUIRE(process->handle_table.GetObject(output[2]).GetPointerUnsafe() == a);
+        REQUIRE(process->handle_table.GetObject(output[3]).GetPointerUnsafe() == b);
+        REQUIRE(process->handle_table.GetObject(output[5]).GetPointerUnsafe() == c);
     }
 
     SECTION("translates StaticBuffer descriptors") {

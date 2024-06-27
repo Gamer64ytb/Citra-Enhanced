@@ -121,7 +121,7 @@ Loader::ResultStatus FileSys::Plugin3GXLoader::Load(
 
     if (!compatible_TID.empty() &&
         std::find(compatible_TID.begin(), compatible_TID.end(),
-                  static_cast<u32>(process.codeset->program_id)) == compatible_TID.end()) {
+                  static_cast<u32>(process.codeset.program_id)) == compatible_TID.end()) {
         LOG_ERROR(Service_PLGLDR,
                   "Failed to load 3GX plugin. Not compatible with loaded process: {}",
                   plg_context.plugin_path);
@@ -291,7 +291,7 @@ void FileSys::Plugin3GXLoader::MapBootloader(Kernel::Process& process, Kernel::K
                                              u32 exe_checksum, bool no_flash) {
 
     u32_le game_instructions[2];
-    kernel.memory.ReadBlock(process, process.codeset->CodeSegment().addr, game_instructions,
+    kernel.memory.ReadBlock(process, process.codeset.CodeSegment().addr, game_instructions,
                             sizeof(u32) * 2);
 
     std::array<u32_le, g_plugin_loader_bootloader.size() / sizeof(u32)> bootloader;
@@ -307,7 +307,7 @@ void FileSys::Plugin3GXLoader::MapBootloader(Kernel::Process& process, Kernel::K
             *it = game_instructions[1];
         } break;
         case 0xDEAD0002: {
-            *it = process.codeset->CodeSegment().addr;
+            *it = process.codeset.CodeSegment().addr;
         } break;
         case 0xDEAD0003: {
             for (u32 i = 0;
@@ -361,6 +361,6 @@ void FileSys::Plugin3GXLoader::MapBootloader(Kernel::Process& process, Kernel::K
 
     game_instructions[0] = 0xE51FF004; // ldr pc, [pc, #-4]
     game_instructions[1] = _3GX_exe_load_addr - bootloader_memory_size;
-    kernel.memory.WriteBlock(process, process.codeset->CodeSegment().addr, game_instructions,
+    kernel.memory.WriteBlock(process, process.codeset.CodeSegment().addr, game_instructions,
                              sizeof(u32) * 2);
 }

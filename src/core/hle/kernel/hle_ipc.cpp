@@ -12,12 +12,12 @@
 #include "common/assert.h"
 #include "common/common_types.h"
 #include "core/core.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/handle_table.h"
 #include "core/hle/kernel/hle_ipc.h"
 #include "core/hle/kernel/ipc_debugger/recorder.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_handle_table.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/kernel.h"
-#include "core/hle/kernel/process.h"
 
 SERIALIZE_EXPORT_IMPL(Kernel::SessionRequestHandler)
 SERIALIZE_EXPORT_IMPL(Kernel::SessionRequestHandler::SessionDataBase)
@@ -33,15 +33,13 @@ public:
     ThreadCallback(std::shared_ptr<HLERequestContext> context_,
                    std::shared_ptr<HLERequestContext::WakeupCallback> callback_)
         : callback(std::move(callback_)), context(std::move(context_)) {}
-    void WakeUp(ThreadWakeupReason reason, std::shared_ptr<Thread> thread,
-                std::shared_ptr<WaitObject> object) {
-        ASSERT(thread->status == ThreadStatus::WaitHleEvent);
+    void WakeUp(ThreadWakeupReason reason, KThread* thread, KSynchronizationObject* object) {
+        ASSERT(thread->m_status == ThreadStatus::WaitHleEvent);
         if (callback) {
             callback->WakeUp(thread, *context, reason);
         }
 
-        auto process = thread->owner_process.lock();
-        ASSERT(process);
+        Process* process = thread->GetOwner();
 
         // We must copy the entire command buffer *plus* the entire static buffers area, since
         // the translation might need to read from it in order to retrieve the StaticBuffer
@@ -70,16 +68,16 @@ private:
     friend class boost::serialization::access;
 };
 
-SessionRequestHandler::SessionInfo::SessionInfo(std::shared_ptr<ServerSession> session,
+SessionRequestHandler::SessionInfo::SessionInfo(KServerSession* session_,
                                                 std::unique_ptr<SessionDataBase> data)
-    : session(std::move(session)), data(std::move(data)) {}
+    : session(session_), data(std::move(data)) {}
 
-void SessionRequestHandler::ClientConnected(std::shared_ptr<ServerSession> server_session) {
+void SessionRequestHandler::ClientConnected(KServerSession* server_session) {
     server_session->SetHleHandler(shared_from_this());
-    connected_sessions.emplace_back(std::move(server_session), MakeSessionData());
+    connected_sessions.emplace_back(server_session, MakeSessionData());
 }
 
-void SessionRequestHandler::ClientDisconnected(std::shared_ptr<ServerSession> server_session) {
+void SessionRequestHandler::ClientDisconnected(KServerSession* server_session) {
     server_session->SetHleHandler(nullptr);
     connected_sessions.erase(
         std::remove_if(connected_sessions.begin(), connected_sessions.end(),
@@ -104,40 +102,46 @@ void SessionRequestHandler::SessionInfo::serialize(Archive& ar, const unsigned i
 }
 SERIALIZE_IMPL(SessionRequestHandler::SessionInfo)
 
-std::shared_ptr<Event> HLERequestContext::SleepClientThread(
-    const std::string& reason, std::chrono::nanoseconds timeout,
-    std::shared_ptr<WakeupCallback> callback) {
+KEvent* HLERequestContext::SleepClientThread(const std::string& reason,
+                                             std::chrono::nanoseconds timeout,
+                                             std::shared_ptr<WakeupCallback> callback) {
     // Put the client thread to sleep until the wait event is signaled or the timeout expires.
-    thread->wakeup_callback = std::make_shared<ThreadCallback>(shared_from_this(), callback);
+    thread->m_wakeup_callback = std::make_shared<ThreadCallback>(shared_from_this(), callback);
 
-    auto event = kernel.CreateEvent(Kernel::ResetType::OneShot, "HLE Pause Event: " + reason);
-    thread->status = ThreadStatus::WaitHleEvent;
-    thread->wait_objects = {event};
+    // Create pause event.
+    auto* event = KEvent::Create(kernel);
+    event->Initialize(nullptr, ResetType::OneShot);
+    event->SetName("HLE Pause Event: " + reason);
+    KEvent::Register(kernel, event);
+
+    // Add the event to the list of objects the thread is waiting for.
+    thread->m_status = ThreadStatus::WaitHleEvent;
+    thread->m_wait_objects = {event};
     event->AddWaitingThread(thread);
 
-    if (timeout.count() > 0)
+    if (timeout.count() > 0) {
         thread->WakeAfterDelay(timeout.count());
+    }
 
     return event;
 }
 
 HLERequestContext::HLERequestContext() : kernel(Core::Global<KernelSystem>()) {}
 
-HLERequestContext::HLERequestContext(KernelSystem& kernel, std::shared_ptr<ServerSession> session,
-                                     std::shared_ptr<Thread> thread)
-    : kernel(kernel), session(std::move(session)), thread(thread) {
+HLERequestContext::HLERequestContext(KernelSystem& kernel, KServerSession* session, KThread* thread)
+    : kernel(kernel), session(session), thread(thread) {
     cmd_buf[0] = 0;
 }
 
 HLERequestContext::~HLERequestContext() = default;
 
-std::shared_ptr<Object> HLERequestContext::GetIncomingHandle(u32 id_from_cmdbuf) const {
+KAutoObject* HLERequestContext::GetIncomingHandle(u32 id_from_cmdbuf) const {
     ASSERT(id_from_cmdbuf < request_handles.size());
     return request_handles[id_from_cmdbuf];
 }
 
-u32 HLERequestContext::AddOutgoingHandle(std::shared_ptr<Object> object) {
-    request_handles.push_back(std::move(object));
+u32 HLERequestContext::AddOutgoingHandle(KAutoObject* object) {
+    request_handles.push_back(object);
     return static_cast<u32>(request_handles.size() - 1);
 }
 
@@ -154,8 +158,7 @@ void HLERequestContext::AddStaticBuffer(u8 buffer_id, std::vector<u8> data) {
 }
 
 Result HLERequestContext::PopulateFromIncomingCommandBuffer(const u32_le* src_cmdbuf,
-                                                            std::shared_ptr<Process> src_process_) {
-    auto& src_process = *src_process_;
+                                                            Process* src_process) {
     IPC::Header header{src_cmdbuf[0]};
 
     std::size_t untranslated_size = 1u + header.normal_params_size;
@@ -179,25 +182,32 @@ Result HLERequestContext::PopulateFromIncomingCommandBuffer(const u32_le* src_cm
         switch (IPC::GetDescriptorType(descriptor)) {
         case IPC::DescriptorType::CopyHandle:
         case IPC::DescriptorType::MoveHandle: {
-            u32 num_handles = IPC::HandleNumberFromDesc(descriptor);
+            const u32 num_handles = IPC::HandleNumberFromDesc(descriptor);
+            auto& src_handle_table = src_process->handle_table;
             ASSERT(i + num_handles <= command_size); // TODO(yuriks): Return error
             for (u32 j = 0; j < num_handles; ++j) {
-                Handle handle = src_cmdbuf[i];
-                std::shared_ptr<Object> object = nullptr;
-                if (handle != 0) {
-                    object = src_process.handle_table.GetGeneric(handle);
-                    ASSERT(object != nullptr); // TODO(yuriks): Return error
-                    if (descriptor == IPC::DescriptorType::MoveHandle) {
-                        src_process.handle_table.Close(handle);
-                    }
+                const Handle handle = src_cmdbuf[i];
+                if (!handle) {
+                    cmd_buf[i++] = AddOutgoingHandle(nullptr);
+                    continue;
                 }
 
-                cmd_buf[i++] = AddOutgoingHandle(std::move(object));
+                // Get object from the handle table.
+                KScopedAutoObject object =
+                    src_handle_table.GetObjectForIpcWithoutPseudoHandle(handle);
+                ASSERT(object.IsNotNull());
+
+                // If we are moving, remove the old handle.
+                if (descriptor == IPC::DescriptorType::MoveHandle) {
+                    src_handle_table.Remove(handle);
+                }
+
+                cmd_buf[i++] = AddOutgoingHandle(object.GetPointerUnsafe());
             }
             break;
         }
         case IPC::DescriptorType::CallingPid: {
-            cmd_buf[i++] = src_process.process_id;
+            cmd_buf[i++] = src_process->process_id;
             break;
         }
         case IPC::DescriptorType::StaticBuffer: {
@@ -206,7 +216,7 @@ Result HLERequestContext::PopulateFromIncomingCommandBuffer(const u32_le* src_cm
 
             // Copy the input buffer into our own vector and store it.
             std::vector<u8> data(buffer_info.size);
-            kernel.memory.ReadBlock(src_process, source_address, data.data(), data.size());
+            kernel.memory.ReadBlock(*src_process, source_address, data.data(), data.size());
 
             AddStaticBuffer(buffer_info.buffer_id, std::move(data));
             cmd_buf[i++] = source_address;
@@ -214,7 +224,7 @@ Result HLERequestContext::PopulateFromIncomingCommandBuffer(const u32_le* src_cm
         }
         case IPC::DescriptorType::MappedBuffer: {
             u32 next_id = static_cast<u32>(request_mapped_buffers.size());
-            request_mapped_buffers.emplace_back(kernel.memory, src_process_, descriptor,
+            request_mapped_buffers.emplace_back(kernel.memory, src_process, descriptor,
                                                 src_cmdbuf[i], next_id);
             cmd_buf[i++] = next_id;
             break;
@@ -259,14 +269,13 @@ Result HLERequestContext::WriteToOutgoingCommandBuffer(u32_le* dst_cmdbuf,
         case IPC::DescriptorType::CopyHandle:
         case IPC::DescriptorType::MoveHandle: {
             // HLE services don't use handles, so we treat both CopyHandle and MoveHandle equally
-            u32 num_handles = IPC::HandleNumberFromDesc(descriptor);
+            const u32 num_handles = IPC::HandleNumberFromDesc(descriptor);
             ASSERT(i + num_handles <= command_size);
             for (u32 j = 0; j < num_handles; ++j) {
-                std::shared_ptr<Object> object = GetIncomingHandle(cmd_buf[i]);
+                KAutoObject* object = GetIncomingHandle(cmd_buf[i]);
                 Handle handle = 0;
                 if (object != nullptr) {
-                    // TODO(yuriks): Figure out the proper error handling for if this fails
-                    R_ASSERT(dst_process.handle_table.Create(std::addressof(handle), object));
+                    dst_process.handle_table.Add(std::addressof(handle), object);
                 }
                 dst_cmdbuf[i++] = handle;
             }
@@ -327,7 +336,7 @@ void HLERequestContext::serialize(Archive& ar, const unsigned int) {
     ar& cmd_buf;
     ar& session;
     ar& thread;
-    ar& request_handles;
+    // ar& request_handles;
     ar& static_buffers;
     ar& request_mapped_buffers;
 }
@@ -335,8 +344,8 @@ SERIALIZE_IMPL(HLERequestContext)
 
 MappedBuffer::MappedBuffer() : memory(&Core::Global<Core::System>().Memory()) {}
 
-MappedBuffer::MappedBuffer(Memory::MemorySystem& memory, std::shared_ptr<Process> process,
-                           u32 descriptor, VAddr address, u32 id)
+MappedBuffer::MappedBuffer(Memory::MemorySystem& memory, Process* process, u32 descriptor,
+                           VAddr address, u32 id)
     : memory(&memory), id(id), address(address), process(std::move(process)) {
     IPC::MappedBufferDescInfo desc{descriptor};
     size = desc.size;

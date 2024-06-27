@@ -16,7 +16,8 @@
 #include "common/swap.h"
 #include "core/core.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/shared_memory.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/result.h"
 #include "core/hle/service/soc/soc_u.h"
 #include "network/socket_manager.h"
@@ -1827,7 +1828,7 @@ void SOC_U::InitializeSockets(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     [[maybe_unused]] const auto memory_block_size = rp.Pop<u32>();
     const u32 pid = rp.PopPID();
-    [[maybe_unused]] auto shared_memory = rp.PopObject<Kernel::SharedMemory>();
+    [[maybe_unused]] auto shared_memory = rp.PopObject<Kernel::KSharedMemory>();
 
     Result res = ResultSuccess;
     if (initialized_processes.find(pid) == initialized_processes.end()) {
@@ -1847,7 +1848,7 @@ void SOC_U::ShutdownSockets(Kernel::HLERequestContext& ctx) {
 
     // This service call does not provide a PID like the others,
     // instead SOC seems to fetch the PID from the current session.
-    const u32 pid = ctx.ClientThread()->owner_process.lock()->process_id;
+    const u32 pid = ctx.ClientThread()->GetOwner()->process_id;
 
     if (initialized_processes.find(pid) == initialized_processes.end()) {
         LOG_DEBUG(Service_SOC, "Process not initialized: pid={}", pid);
@@ -2167,7 +2168,7 @@ void SOC_U::AddGlobalSocket(Kernel::HLERequestContext& ctx) {
 
     // This service call does not provide a PID like the others,
     // instead SOC seems to fetch the PID from the current session.
-    const u32 pid = ctx.ClientThread()->owner_process.lock()->process_id;
+    const u32 pid = ctx.ClientThread()->GetOwner()->process_id;
 
     auto socket_holder_optional = GetSocketHolder(socket_handle, pid, rp);
     if (!socket_holder_optional) {

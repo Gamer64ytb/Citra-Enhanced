@@ -27,9 +27,9 @@
 #include "core/frontend/image_interface.h"
 #include "core/gdbstub/gdbstub.h"
 #include "core/global.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_thread.h"
 #include "core/hle/kernel/kernel.h"
-#include "core/hle/kernel/process.h"
-#include "core/hle/kernel/thread.h"
 #include "core/hle/service/apt/applet_manager.h"
 #include "core/hle/service/apt/apt.h"
 #include "core/hle/service/cam/cam.h"
@@ -82,9 +82,9 @@ System::ResultStatus System::RunLoop(bool tight_loop) {
     }
 
     if (GDBStub::IsServerEnabled()) {
-        Kernel::Thread* thread = kernel->GetCurrentThreadManager().GetCurrentThread();
+        Kernel::KThread* thread = kernel->GetCurrentThreadManager().GetCurrentThread();
         if (thread && running_core) {
-            running_core->SaveContext(thread->context);
+            running_core->SaveContext(thread->GetContext());
         }
         GDBStub::HandlePacket(*this);
 
@@ -418,8 +418,8 @@ System::ResultStatus System::Load(Frontend::EmuWindow& emu_window, const std::st
         restore_plugin_context.reset();
     }
 
-    std::shared_ptr<Kernel::Process> process;
-    const Loader::ResultStatus load_result{app_loader->Load(process)};
+    Kernel::Process* process;
+    const Loader::ResultStatus load_result{app_loader->Load(std::addressof(process))};
     if (Loader::ResultStatus::Success != load_result) {
         LOG_CRITICAL(Core, "Failed to load ROM (Error {})!", load_result);
         System::Shutdown();

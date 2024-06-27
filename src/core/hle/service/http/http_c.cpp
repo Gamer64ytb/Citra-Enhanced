@@ -488,7 +488,7 @@ void HTTP_C::Initialize(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     const u32 shmem_size = rp.Pop<u32>();
     u32 pid = rp.PopPID();
-    shared_memory = rp.PopObject<Kernel::SharedMemory>();
+    shared_memory = rp.PopObject<Kernel::KSharedMemory>();
     if (shared_memory) {
         shared_memory->SetName("HTTP_C:shared_memory");
     }

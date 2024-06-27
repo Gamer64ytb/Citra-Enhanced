@@ -9,14 +9,11 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <span>
-#include <string>
-#include <unordered_map>
+#include <unordered_set>
 #include <vector>
-#include <boost/serialization/export.hpp>
+#include "common/bit_field.h"
 #include "common/common_types.h"
 #include "core/hle/kernel/memory.h"
-#include "core/hle/result.h"
 #include "core/memory.h"
 
 namespace ConfigMem {
@@ -42,30 +39,18 @@ class Recorder;
 
 namespace Kernel {
 
-class AddressArbiter;
-class Event;
-class Mutex;
 class CodeSet;
 class Process;
-class Thread;
-class Semaphore;
-class Timer;
-class ClientPort;
-class ServerPort;
-class ClientSession;
-class ServerSession;
+class KThread;
 class ResourceLimitList;
 class SharedMemory;
 class ThreadManager;
 class TimerManager;
 class VMManager;
 struct AddressMapping;
-
-enum class ResetType {
-    OneShot,
-    Sticky,
-    Pulse,
-};
+class KAutoObject;
+class KObjectName;
+class KObjectNameGlobalData;
 
 /// Permissions for mapped shared memory blocks
 enum class MemoryPermission : u32 {
@@ -79,6 +64,7 @@ enum class MemoryPermission : u32 {
     ReadWriteExecute = (Read | Write | Execute),
     DontCare = (1u << 28)
 };
+DECLARE_ENUM_FLAG_OPERATORS(MemoryPermission)
 
 enum class MemoryRegion : u16 {
     APPLICATION = 1,
@@ -129,6 +115,10 @@ private:
     friend class boost::serialization::access;
 };
 
+template <typename T>
+class KSlabHeap;
+class KAutoObjectWithListContainer;
+
 class KernelSystem {
 public:
     explicit KernelSystem(Memory::MemorySystem& memory, Core::Timing& timing,
@@ -137,142 +127,44 @@ public:
                           u64 override_init_time = 0);
     ~KernelSystem();
 
-    using PortPair = std::pair<std::shared_ptr<ServerPort>, std::shared_ptr<ClientPort>>;
-    using SessionPair = std::pair<std::shared_ptr<ServerSession>, std::shared_ptr<ClientSession>>;
-
-    /**
-     * Creates an address arbiter.
-     *
-     * @param name Optional name used for debugging.
-     * @returns The created AddressArbiter.
-     */
-    std::shared_ptr<AddressArbiter> CreateAddressArbiter(std::string name = "Unknown");
-
-    /**
-     * Creates an event
-     * @param reset_type ResetType describing how to create event
-     * @param name Optional name of event
-     */
-    std::shared_ptr<Event> CreateEvent(ResetType reset_type, std::string name = "Unknown");
-
-    /**
-     * Creates a mutex.
-     * @param initial_locked Specifies if the mutex should be locked initially
-     * @param name Optional name of mutex
-     * @return Pointer to new Mutex object
-     */
-    std::shared_ptr<Mutex> CreateMutex(bool initial_locked, std::string name = "Unknown");
-
-    std::shared_ptr<CodeSet> CreateCodeSet(std::string name, u64 program_id);
-
-    std::shared_ptr<Process> CreateProcess(std::shared_ptr<CodeSet> code_set);
-
     /**
      * Terminates a process, killing its threads and removing it from the process list.
      * @param process Process to terminate.
      */
-    void TerminateProcess(std::shared_ptr<Process> process);
-
-    /**
-     * Creates and returns a new thread. The new thread is immediately scheduled
-     * @param name The friendly name desired for the thread
-     * @param entry_point The address at which the thread should start execution
-     * @param priority The thread's priority
-     * @param arg User data to pass to the thread
-     * @param processor_id The ID(s) of the processors on which the thread is desired to be run
-     * @param stack_top The address of the thread's stack top
-     * @param owner_process The parent process for the thread
-     * @param make_ready If the thread should be put in the ready queue
-     * @return A shared pointer to the newly created thread
-     */
-    ResultVal<std::shared_ptr<Thread>> CreateThread(std::string name, VAddr entry_point,
-                                                    u32 priority, u32 arg, s32 processor_id,
-                                                    VAddr stack_top,
-                                                    std::shared_ptr<Process> owner_process,
-                                                    bool make_ready = true);
-
-    /**
-     * Creates a semaphore.
-     * @param initial_count Number of slots reserved for other threads
-     * @param max_count Maximum number of slots the semaphore can have
-     * @param name Optional name of semaphore
-     * @return The created semaphore
-     */
-    ResultVal<std::shared_ptr<Semaphore>> CreateSemaphore(s32 initial_count, s32 max_count,
-                                                          std::string name = "Unknown");
-
-    /**
-     * Creates a timer
-     * @param reset_type ResetType describing how to create the timer
-     * @param name Optional name of timer
-     * @return The created Timer
-     */
-    std::shared_ptr<Timer> CreateTimer(ResetType reset_type, std::string name = "Unknown");
-
-    /**
-     * Creates a pair of ServerPort and an associated ClientPort.
-     *
-     * @param max_sessions Maximum number of sessions to the port
-     * @param name Optional name of the ports
-     * @return The created port tuple
-     */
-    PortPair CreatePortPair(u32 max_sessions, std::string name = "UnknownPort");
-
-    /**
-     * Creates a pair of ServerSession and an associated ClientSession.
-     * @param name        Optional name of the ports.
-     * @param client_port Optional The ClientPort that spawned this session.
-     * @return The created session tuple
-     */
-    SessionPair CreateSessionPair(const std::string& name = "Unknown",
-                                  std::shared_ptr<ClientPort> client_port = nullptr);
+    void TerminateProcess(Process* process);
 
     ResourceLimitList& ResourceLimit();
     const ResourceLimitList& ResourceLimit() const;
 
-    /**
-     * Creates a shared memory object.
-     * @param owner_process Process that created this shared memory object.
-     * @param size Size of the memory block. Must be page-aligned.
-     * @param permissions Permission restrictions applied to the process which created the block.
-     * @param other_permissions Permission restrictions applied to other processes mapping the
-     * block.
-     * @param address The address from which to map the Shared Memory.
-     * @param region If the address is 0, the shared memory will be allocated in this region of the
-     * linear heap.
-     * @param name Optional object name, used for debugging purposes.
-     */
-    ResultVal<std::shared_ptr<SharedMemory>> CreateSharedMemory(
-        std::shared_ptr<Process> owner_process, u32 size, MemoryPermission permissions,
-        MemoryPermission other_permissions, VAddr address = 0,
-        MemoryRegion region = MemoryRegion::BASE, std::string name = "Unknown");
-
-    /**
-     * Creates a shared memory object from a block of memory managed by an HLE applet.
-     * @param offset The offset into the heap block that the SharedMemory will map.
-     * @param size Size of the memory block. Must be page-aligned.
-     * @param permissions Permission restrictions applied to the process which created the block.
-     * @param other_permissions Permission restrictions applied to other processes mapping the
-     * block.
-     * @param name Optional object name, used for debugging purposes.
-     */
-    std::shared_ptr<SharedMemory> CreateSharedMemoryForApplet(u32 offset, u32 size,
-                                                              MemoryPermission permissions,
-                                                              MemoryPermission other_permissions,
-                                                              std::string name = "Unknown Applet");
-
     u32 GenerateObjectID();
 
-    /// Retrieves a process from the current list of processes.
-    std::shared_ptr<Process> GetProcessById(u32 process_id) const;
+    /// Gets the slab heap for the specified kernel object type.
+    template <typename T>
+    KSlabHeap<T>& SlabHeap();
 
-    std::span<const std::shared_ptr<Process>> GetProcessList() const {
+    KAutoObjectWithListContainer& ObjectListContainer();
+
+    /// Gets global data for KObjectName.
+    KObjectNameGlobalData& ObjectNameGlobalData();
+
+    /// Registers all kernel objects with the global emulation state, this is purely for tracking
+    /// leaks after emulation has been shutdown.
+    void RegisterKernelObject(KAutoObject* object);
+
+    /// Unregisters a kernel object previously registered with RegisterKernelObject when it was
+    /// destroyed during the current emulation session.
+    void UnregisterKernelObject(KAutoObject* object);
+
+    /// Retrieves a process from the current list of processes.
+    Process* GetProcessById(u32 process_id) const;
+
+    const std::vector<Process*>& GetProcessList() const {
         return process_list;
     }
 
-    std::shared_ptr<Process> GetCurrentProcess() const;
-    void SetCurrentProcess(std::shared_ptr<Process> process);
-    void SetCurrentProcessForCPU(std::shared_ptr<Process> process, u32 core_id);
+    Process* GetCurrentProcess() const;
+    void SetCurrentProcess(Process* process);
+    void SetCurrentProcessForCPU(Process* process, u32 core_id);
 
     void SetCurrentMemoryPageTable(std::shared_ptr<Memory::PageTable> page_table);
 
@@ -305,14 +197,12 @@ public:
 
     std::array<std::shared_ptr<MemoryRegionInfo>, 3> memory_regions{};
 
-    /// Adds a port to the named port table
-    void AddNamedPort(std::string name, std::shared_ptr<ClientPort> port);
-
     void PrepareReschedule() {
         prepare_reschedule_callback();
     }
 
     u32 NewThreadId();
+    u32 NewProcessId();
 
     void ResetThreadIDs();
 
@@ -328,14 +218,14 @@ public:
         return hle_lock;
     }
 
-    /// Map of named ports managed by the kernel, which can be retrieved using the ConnectToPort
-    std::unordered_map<std::string, std::shared_ptr<ClientPort>> named_ports;
-
     Core::ARM_Interface* current_cpu = nullptr;
 
     Memory::MemorySystem& memory;
 
     Core::Timing& timing;
+
+    // Lists all processes that exist in the current session.
+    std::vector<Process*> process_list;
 
     /// Sleep main thread of the first ever launched non-sysmodule process.
     void SetAppMainThreadExtendedSleep(bool requires_sleep) {
@@ -367,11 +257,8 @@ private:
     // reserved for low-level services
     u32 next_process_id = 10;
 
-    // Lists all processes that exist in the current session.
-    std::vector<std::shared_ptr<Process>> process_list;
-
-    std::shared_ptr<Process> current_process;
-    std::vector<std::shared_ptr<Process>> stored_processes;
+    Process* current_process{};
+    std::vector<Process*> stored_processes;
 
     std::vector<std::unique_ptr<ThreadManager>> thread_managers;
 
@@ -384,6 +271,16 @@ private:
 
     MemoryMode memory_mode;
     New3dsHwCapabilities n3ds_hw_caps;
+
+    /// Helper to encapsulate all slab heaps in a single heap allocated container
+    struct SlabHeapContainer;
+    std::unique_ptr<SlabHeapContainer> slab_heap_container;
+
+    std::unique_ptr<KObjectNameGlobalData> object_name_global_data;
+
+    std::unique_ptr<KAutoObjectWithListContainer> global_object_list_container;
+
+    std::unordered_set<KAutoObject*> registered_objects;
 
     /*
      * Synchronizes access to the internal HLE kernel structures, it is acquired when a guest

@@ -11,8 +11,8 @@
 #include "core/core_timing.h"
 #include "core/frontend/camera/factory.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/process.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/hle/service/cam/cam.h"
 #include "core/hle/service/cam/cam_c.h"
 #include "core/hle/service/cam/cam_q.h"
@@ -28,7 +28,7 @@ template <class Archive>
 void Module::serialize(Archive& ar, const unsigned int file_version) {
     ar& cameras;
     ar& ports;
-    ar& is_camera_reload_pending;
+    // ar& is_camera_reload_pending;
     ar& initialized;
     if (Archive::is_loading::value && initialized) {
         for (int i = 0; i < NumCameras; i++) {
@@ -361,7 +361,7 @@ void Module::Interface::GetVsyncInterruptEvent(Kernel::HLERequestContext& ctx) {
     } else {
         LOG_ERROR(Service_CAM, "invalid port_select={}", port_select.m_val);
         rb.Push(ResultInvalidEnumValue);
-        rb.PushCopyObjects<Kernel::Object>(nullptr);
+        rb.PushCopyObjects<Kernel::KAutoObject>(nullptr);
     }
 
     LOG_WARNING(Service_CAM, "(STUBBED) called, port_select={}", port_select.m_val);
@@ -379,7 +379,7 @@ void Module::Interface::GetBufferErrorInterruptEvent(Kernel::HLERequestContext& 
     } else {
         LOG_ERROR(Service_CAM, "invalid port_select={}", port_select.m_val);
         rb.Push(ResultInvalidEnumValue);
-        rb.PushCopyObjects<Kernel::Object>(nullptr);
+        rb.PushCopyObjects<Kernel::KAutoObject>(nullptr);
     }
 
     LOG_WARNING(Service_CAM, "(STUBBED) called, port_select={}", port_select.m_val);
@@ -399,7 +399,7 @@ void Module::Interface::SetReceiving(Kernel::HLERequestContext& ctx) {
         PortConfig& port = cam->ports[port_id];
         cam->CancelReceiving(port_id);
         port.completion_event->Clear();
-        port.dest_process = process.get();
+        port.dest_process = process;
         port.dest = dest;
         port.dest_size = image_size;
 
@@ -414,7 +414,7 @@ void Module::Interface::SetReceiving(Kernel::HLERequestContext& ctx) {
     } else {
         LOG_ERROR(Service_CAM, "invalid port_select={}", port_select.m_val);
         rb.Push(ResultInvalidEnumValue);
-        rb.PushCopyObjects<Kernel::Object>(nullptr);
+        rb.PushCopyObjects<Kernel::KAutoObject>(nullptr);
     }
 
     LOG_DEBUG(Service_CAM, "called, addr=0x{:X}, port_select={}, image_size={}, trans_unit={}",
@@ -1137,15 +1137,15 @@ void Module::Interface::DriverFinalize(Kernel::HLERequestContext& ctx) {
     LOG_DEBUG(Service_CAM, "called");
 }
 
-Module::Module(Core::System& system) : system(system) {
+Module::Module(Core::System& system) : system(system), service_context(system) {
     using namespace Kernel;
     for (PortConfig& port : ports) {
         port.completion_event =
-            system.Kernel().CreateEvent(ResetType::Sticky, "CAM::completion_event");
+            service_context.CreateEvent(ResetType::Sticky, "CAM::completion_event");
         port.buffer_error_interrupt_event =
-            system.Kernel().CreateEvent(ResetType::OneShot, "CAM::buffer_error_interrupt_event");
+            service_context.CreateEvent(ResetType::OneShot, "CAM::buffer_error_interrupt_event");
         port.vsync_interrupt_event =
-            system.Kernel().CreateEvent(ResetType::OneShot, "CAM::vsync_interrupt_event");
+            service_context.CreateEvent(ResetType::OneShot, "CAM::vsync_interrupt_event");
     }
     completion_event_callback = system.CoreTiming().RegisterEvent(
         "CAM::CompletionEventCallBack", [this](std::uintptr_t user_data, s64 cycles_late) {

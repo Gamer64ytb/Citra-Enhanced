@@ -9,13 +9,13 @@
 #include "common/memory_ref.h"
 #include "core/core.h"
 #include "core/hle/ipc.h"
-#include "core/hle/kernel/handle_table.h"
 #include "core/hle/kernel/ipc.h"
 #include "core/hle/kernel/ipc_debugger/recorder.h"
+#include "core/hle/kernel/k_handle_table.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_thread.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/memory.h"
-#include "core/hle/kernel/process.h"
-#include "core/hle/kernel/thread.h"
 #include "core/memory.h"
 
 SERIALIZE_EXPORT_IMPL(Kernel::MappedBufferContext)
@@ -23,12 +23,11 @@ SERIALIZE_EXPORT_IMPL(Kernel::MappedBufferContext)
 namespace Kernel {
 
 Result TranslateCommandBuffer(Kernel::KernelSystem& kernel, Memory::MemorySystem& memory,
-                              std::shared_ptr<Thread> src_thread,
-                              std::shared_ptr<Thread> dst_thread, VAddr src_address,
+                              KThread* src_thread, KThread* dst_thread, VAddr src_address,
                               VAddr dst_address,
                               std::vector<MappedBufferContext>& mapped_buffer_context, bool reply) {
-    auto src_process = src_thread->owner_process.lock();
-    auto dst_process = dst_thread->owner_process.lock();
+    auto src_process = src_thread->GetOwner();
+    auto dst_process = dst_thread->GetOwner();
     ASSERT(src_process && dst_process);
 
     IPC::Header header;
@@ -69,30 +68,34 @@ Result TranslateCommandBuffer(Kernel::KernelSystem& kernel, Memory::MemorySystem
 
             for (u32 j = 0; j < num_handles; ++j) {
                 Handle handle = cmd_buf[i];
-                std::shared_ptr<Object> object = nullptr;
                 // Perform pseudo-handle detection here because by the time this function is called,
                 // the current thread and process are no longer the ones which created this IPC
                 // request, but the ones that are handling it.
-                if (handle == CurrentThread) {
-                    object = src_thread;
-                } else if (handle == CurrentProcess) {
-                    object = src_process;
-                } else if (handle != 0) {
-                    object = src_process->handle_table.GetGeneric(handle);
-                    if (descriptor == IPC::DescriptorType::MoveHandle) {
-                        src_process->handle_table.Close(handle);
+                KScopedAutoObject object = [&]() -> KScopedAutoObject<KAutoObject> {
+                    if (handle == CurrentThread) {
+                        return src_thread;
+                    } else if (handle == CurrentProcess) {
+                        return src_process;
+                    } else if (handle != 0) {
+                        auto obj = src_process->handle_table.GetObject(handle);
+                        if (descriptor == IPC::DescriptorType::MoveHandle) {
+                            src_process->handle_table.Remove(handle);
+                        }
+                        return obj;
                     }
-                }
+                    return nullptr;
+                }();
 
-                if (object == nullptr) {
+                if (object.IsNull()) {
                     // Note: The real kernel sets invalid translated handles to 0 in the target
                     // command buffer.
                     cmd_buf[i++] = 0;
                     continue;
                 }
 
-                R_ASSERT(dst_process->handle_table.Create(std::addressof(cmd_buf[i++]),
-                                                          std::move(object)));
+                Handle dst_handle = 0;
+                dst_process->handle_table.Add(&dst_handle, object.GetPointerUnsafe());
+                cmd_buf[i++] = dst_handle;
             }
             break;
         }

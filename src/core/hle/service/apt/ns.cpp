@@ -3,14 +3,15 @@
 // Refer to the license.txt file included.
 
 #include "core/core.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/hle/service/am/am.h"
 #include "core/hle/service/apt/ns.h"
+#include "core/hle/service/fs/archive.h"
 #include "core/loader/loader.h"
 
 namespace Service::NS {
 
-std::shared_ptr<Kernel::Process> LaunchTitle(Core::System& system, FS::MediaType media_type,
-                                             u64 title_id) {
+Kernel::Process* LaunchTitle(Core::System& system, FS::MediaType media_type, u64 title_id) {
     std::string path = AM::GetTitleContentPath(media_type, title_id);
     auto loader = Loader::GetLoader(path);
 
@@ -30,8 +31,8 @@ std::shared_ptr<Kernel::Process> LaunchTitle(Core::System& system, FS::MediaType
         }
     }
 
-    std::shared_ptr<Kernel::Process> process;
-    Loader::ResultStatus result = loader->Load(process);
+    Kernel::Process* process{};
+    Loader::ResultStatus result = loader->Load(std::addressof(process));
 
     if (result != Loader::ResultStatus::Success) {
         LOG_WARNING(Service_NS, "Error loading .app for title 0x{:016x}", title_id);

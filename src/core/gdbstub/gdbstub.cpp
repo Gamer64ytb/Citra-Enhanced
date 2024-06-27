@@ -35,7 +35,7 @@
 #include "core/core.h"
 #include "core/gdbstub/gdbstub.h"
 #include "core/gdbstub/hio.h"
-#include "core/hle/kernel/process.h"
+#include "core/hle/kernel/k_process.h"
 #include "core/memory.h"
 
 namespace GDBStub {
@@ -128,7 +128,7 @@ u32 command_length;
 u32 latest_signal = 0;
 bool memory_break = false;
 
-static Kernel::Thread* current_thread = nullptr;
+static Kernel::KThread* current_thread = nullptr;
 
 // Binding to a port within the reserved ports range (0-1023) requires root permissions,
 // so default to a port outside of that range.
@@ -159,72 +159,76 @@ BreakpointMap breakpoints_read;
 BreakpointMap breakpoints_write;
 } // Anonymous namespace
 
-static Kernel::Thread* FindThreadById(int id) {
+static Kernel::KThread* FindThreadById(int id) {
     u32 num_cores = Core::GetNumCores();
     for (u32 i = 0; i < num_cores; ++i) {
         const auto& threads =
             Core::System::GetInstance().Kernel().GetThreadManager(i).GetThreadList();
         for (auto& thread : threads) {
             if (thread->GetThreadId() == static_cast<u32>(id)) {
-                return thread.get();
+                return thread;
             }
         }
     }
     return nullptr;
 }
 
-static u32 RegRead(std::size_t id, Kernel::Thread* thread = nullptr) {
+static u32 RegRead(std::size_t id, Kernel::KThread* thread = nullptr) {
     if (!thread) {
         return 0;
     }
 
+    const auto& context = thread->GetContext();
     if (id <= PC_REGISTER) {
-        return thread->context.cpu_registers[id];
+        return context.cpu_registers[id];
     } else if (id == CPSR_REGISTER) {
-        return thread->context.cpsr;
+        return context.cpsr;
     } else {
         return 0;
     }
 }
 
-static void RegWrite(std::size_t id, u32 val, Kernel::Thread* thread = nullptr) {
+static void RegWrite(std::size_t id, u32 val, Kernel::KThread* thread = nullptr) {
     if (!thread) {
         return;
     }
 
+    auto& context = thread->GetContext();
     if (id <= PC_REGISTER) {
-        thread->context.cpu_registers[id] = val;
+        context.cpu_registers[id] = val;
     } else if (id == CPSR_REGISTER) {
-        thread->context.cpsr = val;
+        context.cpsr = val;
     }
 }
 
-static u64 FpuRead(std::size_t id, Kernel::Thread* thread = nullptr) {
+static u64 FpuRead(std::size_t id, Kernel::KThread* thread = nullptr) {
     if (!thread) {
         return 0;
     }
 
+    const auto& context = thread->GetContext();
     if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
-        u64 ret = thread->context.fpu_registers[2 * (id - D0_REGISTER)];
-        ret |= static_cast<u64>(thread->context.fpu_registers[2 * (id - D0_REGISTER) + 1]) << 32;
+        u64 ret = context.fpu_registers[2 * (id - D0_REGISTER)];
+        ret |= static_cast<u64>(context.fpu_registers[2 * (id - D0_REGISTER) + 1]) << 32;
         return ret;
     } else if (id == FPSCR_REGISTER) {
-        return thread->context.fpscr;
+        return context.fpscr;
     } else {
         return 0;
     }
 }
 
-static void FpuWrite(std::size_t id, u64 val, Kernel::Thread* thread = nullptr) {
+static void FpuWrite(std::size_t id, u64 val, Kernel::KThread* thread = nullptr) {
     if (!thread) {
         return;
     }
 
+    auto& context = thread->GetContext();
     if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
-        thread->context.fpu_registers[2 * (id - D0_REGISTER)] = static_cast<u32>(val);
-        thread->context.fpu_registers[2 * (id - D0_REGISTER) + 1] = static_cast<u32>(val >> 32);
+        context.fpu_registers[2 * (id - D0_REGISTER)] = static_cast<u32>(val);
+        context.fpu_registers[2 * (id - D0_REGISTER) + 1] = static_cast<u32>(val >> 32);
     } else if (id == FPSCR_REGISTER) {
-        thread->context.fpscr = static_cast<u32>(val);
+        context.fpscr = static_cast<u32>(val);
     }
 }
 
@@ -606,7 +610,7 @@ static void HandleThreadAlive() {
  *
  * @param signal Signal to be sent to client.
  */
-static void SendSignal(Kernel::Thread* thread, u32 signal, bool full = true) {
+static void SendSignal(Kernel::KThread* thread, u32 signal, bool full = true) {
     if (gdbserver_socket == -1) {
         return;
     }
@@ -785,7 +789,7 @@ static void WriteRegister() {
         return SendReply("E01");
     }
 
-    Core::GetRunningCore().LoadContext(current_thread->context);
+    Core::GetRunningCore().LoadContext(current_thread->GetContext());
 
     SendReply("OK");
 }
@@ -815,7 +819,7 @@ static void WriteRegisters() {
         }
     }
 
-    Core::GetRunningCore().LoadContext(current_thread->context);
+    Core::GetRunningCore().LoadContext(current_thread->GetContext());
 
     SendReply("OK");
 }
@@ -890,7 +894,7 @@ void Break(bool is_memory_break) {
 static void Step() {
     if (command_length > 1) {
         RegWrite(PC_REGISTER, GdbHexToInt(command_buffer + 1), current_thread);
-        Core::GetRunningCore().LoadContext(current_thread->context);
+        Core::GetRunningCore().LoadContext(current_thread->GetContext());
     }
     step_loop = true;
     halt_loop = true;
@@ -1266,7 +1270,7 @@ void SetCpuStepFlag(bool is_step) {
     step_loop = is_step;
 }
 
-void SendTrap(Kernel::Thread* thread, int trap) {
+void SendTrap(Kernel::KThread* thread, int trap) {
     if (!send_trap) {
         return;
     }

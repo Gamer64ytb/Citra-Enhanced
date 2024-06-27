@@ -6,7 +6,7 @@
 #include "common/string_util.h"
 #include "core/core.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
+#include "core/hle/kernel/k_event.h"
 #include "core/hle/service/nim/nim_u.h"
 
 SERVICE_CONSTRUCT_IMPL(Service::NIM::NIM_U)
@@ -124,7 +124,7 @@ struct AutoDbgDat {
 
 static_assert(sizeof(AutoDbgDat) == 0x108, "AutoDbgDat structure size is wrong");
 
-NIM_U::NIM_U(Core::System& system) : ServiceFramework("nim:u", 2) {
+NIM_U::NIM_U(Core::System& system) : ServiceFramework("nim:u", 2), service_context(system) {
     const FunctionInfo functions[] = {
         // clang-format off
         {0x0001, &NIM_U::StartNetworkUpdate, "StartNetworkUpdate"},
@@ -177,11 +177,11 @@ NIM_U::NIM_U(Core::System& system) : ServiceFramework("nim:u", 2) {
     };
     RegisterHandlers(functions);
     nim_system_update_event_for_menu =
-        system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "NIM System Update Event (Menu)");
+        service_context.CreateEvent(Kernel::ResetType::OneShot, "NIM System Update Event (Menu)");
     nim_system_update_event_for_news =
-        system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "NIM System Update Event (News)");
+        service_context.CreateEvent(Kernel::ResetType::OneShot, "NIM System Update Event (News)");
     nim_async_completion_event =
-        system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "NIM Async Completion Event");
+        service_context.CreateEvent(Kernel::ResetType::OneShot, "NIM Async Completion Event");
 }
 
 NIM_U::~NIM_U() = default;

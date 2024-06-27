@@ -11,7 +11,8 @@
 #include "common/bit_field.h"
 #include "core/core.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/shared_memory.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/kernel/shared_page.h"
 #include "core/hle/result.h"
 #include "core/hle/service/gsp/gsp_gpu.h"
@@ -79,7 +80,7 @@ InterruptRelayQueue* GSP_GPU::GetInterruptRelayQueue(u32 thread_id) {
     return reinterpret_cast<InterruptRelayQueue*>(ptr);
 }
 
-void GSP_GPU::ClientDisconnected(std::shared_ptr<Kernel::ServerSession> server_session) {
+void GSP_GPU::ClientDisconnected(Kernel::KServerSession* server_session) {
     const SessionData* session_data = GetSessionData(server_session);
     if (active_thread_id == session_data->thread_id) {
         ReleaseRight(session_data);
@@ -294,7 +295,7 @@ void GSP_GPU::RegisterInterruptRelayQueue(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     u32 flags = rp.Pop<u32>();
 
-    auto interrupt_event = rp.PopObject<Kernel::Event>();
+    auto interrupt_event = rp.PopObject<Kernel::KEvent>();
     ASSERT_MSG(interrupt_event, "handle is not valid!");
 
     interrupt_event->SetName("GSP_GPU::interrupt_event");
@@ -558,8 +559,7 @@ void GSP_GPU::RestoreVramSysArea(Kernel::HLERequestContext& ctx) {
 }
 
 Result GSP_GPU::AcquireGpuRight(const Kernel::HLERequestContext& ctx,
-                                const std::shared_ptr<Kernel::Process>& process, u32 flag,
-                                bool blocking) {
+                                const Kernel::Process* process, u32 flag, bool blocking) {
     const auto session_data = GetSessionData(ctx.Session());
 
     LOG_DEBUG(Service_GSP, "called flag={:08X} process={} thread_id={}", flag, process->process_id,
@@ -627,7 +627,7 @@ void GSP_GPU::StoreDataCache(Kernel::HLERequestContext& ctx) {
 
     [[maybe_unused]] u32 address = rp.Pop<u32>();
     [[maybe_unused]] u32 size = rp.Pop<u32>();
-    auto process = rp.PopObject<Kernel::Process>();
+    [[maybe_unused]] auto process = rp.PopObject<Kernel::Process>();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(ResultSuccess);
@@ -682,7 +682,8 @@ void GSP_GPU::serialize(Archive& ar, const unsigned int) {
 }
 SERIALIZE_IMPL(GSP_GPU)
 
-GSP_GPU::GSP_GPU(Core::System& system) : ServiceFramework("gsp::Gpu", 4), system(system) {
+GSP_GPU::GSP_GPU(Core::System& system)
+    : ServiceFramework("gsp::Gpu", 4), system(system), service_context(system) {
     static const FunctionInfo functions[] = {
         // clang-format off
         {0x0001, &GSP_GPU::WriteHWRegs, "WriteHWRegs"},
@@ -721,11 +722,9 @@ GSP_GPU::GSP_GPU(Core::System& system) : ServiceFramework("gsp::Gpu", 4), system
     RegisterHandlers(functions);
 
     using Kernel::MemoryPermission;
-    shared_memory = system.Kernel()
-                        .CreateSharedMemory(nullptr, 0x1000, MemoryPermission::ReadWrite,
-                                            MemoryPermission::ReadWrite, 0,
-                                            Kernel::MemoryRegion::BASE, "GSP:SharedMemory")
-                        .Unwrap();
+    shared_memory = service_context.CreateSharedMemory(
+        0x1000, MemoryPermission::ReadWrite, MemoryPermission::ReadWrite, 0,
+        Kernel::MemoryRegion::BASE, "GSP:SharedMemory");
 
     first_initialization = true;
 };

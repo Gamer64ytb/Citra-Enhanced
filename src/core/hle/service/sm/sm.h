@@ -12,9 +12,7 @@
 #include <boost/serialization/split_member.hpp>
 #include <boost/serialization/string.hpp>
 #include <boost/serialization/unordered_map.hpp>
-#include "core/hle/kernel/client_port.h"
-#include "core/hle/kernel/object.h"
-#include "core/hle/kernel/server_port.h"
+#include "core/hle/kernel/k_port.h"
 #include "core/hle/result.h"
 #include "core/hle/service/service.h"
 
@@ -23,8 +21,9 @@ class System;
 }
 
 namespace Kernel {
-class ClientSession;
+class KClientSession;
 class SessionRequestHandler;
+class KPort;
 } // namespace Kernel
 
 namespace Service::SM {
@@ -44,6 +43,9 @@ constexpr Result ResultNameContainsNul(7, ErrorModule::SRV, ErrorSummary::WrongA
 constexpr Result ResultAlreadyRegistered(ErrorDescription::AlreadyExists, ErrorModule::OS,
                                          ErrorSummary::WrongArgument,
                                          ErrorLevel::Permanent); // 0xD9001BFC
+constexpr Result ResultTooManyServices(ErrorDescription::OutOfMemory, ErrorModule::SRV,
+                                       ErrorSummary::OutOfResource,
+                                       ErrorLevel::Permanent); // 0xD86067F3
 
 class ServiceManager {
 public:
@@ -51,12 +53,11 @@ public:
 
     explicit ServiceManager(Core::System& system);
 
-    Result RegisterService(std::shared_ptr<Kernel::ServerPort>* out_server_port, std::string name,
-                           u32 max_sessions);
-    Result GetServicePort(std::shared_ptr<Kernel::ClientPort>* out_client_port,
-                          const std::string& name);
-    Result ConnectToService(std::shared_ptr<Kernel::ClientSession>* out_client_session,
-                            const std::string& name);
+    Result RegisterService(Kernel::KServerPort** out_port, std::string name, u32 max_sessions);
+    Result RegisterPort(Kernel::KClientPort* port, std::string name);
+    Result GetServicePort(Kernel::KClientPort** out_port, const std::string& name);
+    Result ConnectToService(Kernel::KClientSession** out_session, const std::string& name);
+
     // For IPC Recorder
     std::string GetServiceNameByPortId(u32 port) const;
 
@@ -64,41 +65,34 @@ public:
     std::shared_ptr<T> GetService(const std::string& service_name) const {
         static_assert(std::is_base_of_v<Kernel::SessionRequestHandler, T>,
                       "Not a base of ServiceFrameworkBase");
-        auto service = registered_services.find(service_name);
-        if (service == registered_services.end()) {
+        auto service = service_ports.find(service_name);
+        if (service == service_ports.end()) {
             LOG_DEBUG(Service, "Can't find service: {}", service_name);
             return nullptr;
         }
-        auto port = service->second->GetServerPort();
-        if (port == nullptr) {
-            return nullptr;
-        }
-        return std::static_pointer_cast<T>(port->hle_handler);
+        auto& port = service->second->GetParent()->GetServerPort();
+        return std::static_pointer_cast<T>(port.GetHleHandler());
     }
 
 private:
     Core::System& system;
     std::weak_ptr<SRV> srv_interface;
 
-    /// Map of registered services, retrieved using GetServicePort or ConnectToService.
-    std::unordered_map<std::string, std::shared_ptr<Kernel::ClientPort>> registered_services;
-
-    // For IPC Recorder
-    /// client port Object id -> service name
+    std::unordered_map<std::string, Kernel::KClientPort*> service_ports;
     std::unordered_map<u32, std::string> registered_services_inverse;
 
     template <class Archive>
-    void save(Archive& ar, const unsigned int file_version) const {
-        ar << registered_services;
+    void save(Archive& ar, const u32 file_version) const {
+        ar << service_ports;
     }
 
     template <class Archive>
-    void load(Archive& ar, const unsigned int file_version) {
-        ar >> registered_services;
+    void load(Archive& ar, const u32 file_version) {
+        ar >> service_ports;
         registered_services_inverse.clear();
-        for (const auto& pair : registered_services) {
-            registered_services_inverse.emplace(pair.second->GetObjectId(), pair.first);
-        }
+        /*for (const auto& [name, port] : service_ports) {
+            registered_services_inverse.emplace(port->GetObjectId(), name);
+        }*/
     }
 
     BOOST_SERIALIZATION_SPLIT_MEMBER()

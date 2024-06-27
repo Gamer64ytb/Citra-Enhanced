@@ -11,8 +11,8 @@
 #include "core/core.h"
 #include "core/frontend/applets/mii_selector.h"
 #include "core/hle/applets/mii_selector.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/kernel/kernel.h"
-#include "core/hle/kernel/shared_memory.h"
 #include "core/hle/result.h"
 
 namespace HLE::Applets {
@@ -35,7 +35,7 @@ Result MiiSelector::ReceiveParameterImpl(const Service::APT::MessageParameter& p
 
     using Kernel::MemoryPermission;
     // Create a SharedMemory that directly points to this heap block.
-    framebuffer_memory = system.Kernel().CreateSharedMemoryForApplet(
+    framebuffer_memory = service_context.CreateSharedMemoryForApplet(
         0, capture_info.size, MemoryPermission::ReadWrite, MemoryPermission::ReadWrite,
         "MiiSelector Memory");
 

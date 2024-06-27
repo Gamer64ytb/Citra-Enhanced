@@ -8,11 +8,10 @@
 #include <memory>
 #include <vector>
 #include "common/archives.h"
-#include "common/common_funcs.h"
 #include "common/common_types.h"
-#include "common/swap.h"
 #include "core/global.h"
 #include "core/hle/kernel/kernel.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -20,8 +19,8 @@ class System;
 }
 
 namespace Kernel {
-class Mutex;
-class SharedMemory;
+class KMutex;
+class KSharedMemory;
 } // namespace Kernel
 
 namespace Service::APT {
@@ -1065,9 +1064,10 @@ private:
     bool LoadLegacySharedFont();
 
     Core::System& system;
+    KernelHelpers::ServiceContext service_context;
 
     /// Handle to shared memory region designated to for shared system font
-    std::shared_ptr<Kernel::SharedMemory> shared_font_mem;
+    Kernel::KSharedMemory* shared_font_mem{};
     bool shared_font_loaded = false;
     bool shared_font_relocated = false;
 

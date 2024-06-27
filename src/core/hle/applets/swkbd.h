@@ -9,7 +9,6 @@
 #include "common/common_types.h"
 #include "core/frontend/applets/swkbd.h"
 #include "core/hle/applets/applet.h"
-#include "core/hle/kernel/shared_memory.h"
 #include "core/hle/result.h"
 #include "core/hle/service/apt/apt.h"
 
@@ -195,10 +194,10 @@ private:
     /// This SharedMemory will be created when we receive the LibAppJustStarted message.
     /// It holds the framebuffer info retrieved by the application with
     /// GSPGPU::ImportDisplayCaptureInfo
-    std::shared_ptr<Kernel::SharedMemory> framebuffer_memory;
+    Kernel::KSharedMemory* framebuffer_memory;
 
     /// SharedMemory where the output text will be stored
-    std::shared_ptr<Kernel::SharedMemory> text_memory;
+    Kernel::KSharedMemory* text_memory;
 
     /// Configuration of this instance of the SoftwareKeyboard, as received from the application
     SoftwareKeyboardConfig config;

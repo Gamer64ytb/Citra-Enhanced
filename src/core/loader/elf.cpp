@@ -9,8 +9,8 @@
 #include "common/file_util.h"
 #include "common/logging/log.h"
 #include "core/core.h"
-#include "core/hle/kernel/process.h"
-#include "core/hle/kernel/resource_limit.h"
+#include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_resource_limit.h"
 #include "core/loader/elf.h"
 #include "core/memory.h"
 
@@ -168,19 +168,19 @@ typedef int SectionID;
 
 class ElfReader {
 private:
-    char* base;
-    u32* base32;
+    const u8* base;
+    const u32* base32;
 
-    Elf32_Ehdr* header;
-    Elf32_Phdr* segments;
-    Elf32_Shdr* sections;
+    const Elf32_Ehdr* header;
+    const Elf32_Phdr* segments;
+    const Elf32_Shdr* sections;
 
     u32* sectionAddrs;
     bool relocate;
     u32 entryPoint;
 
 public:
-    explicit ElfReader(void* ptr);
+    explicit ElfReader(std::span<const u8> buffer);
 
     u32 Read32(int off) const {
         return base32[off >> 2];
@@ -197,18 +197,18 @@ public:
         return entryPoint;
     }
     u32 GetFlags() const {
-        return (u32)(header->e_flags);
+        return header->e_flags;
     }
-    std::shared_ptr<CodeSet> LoadInto(Core::System& system, u32 vaddr);
+    void LoadInto(Kernel::CodeSet& codeset, u32 vaddr);
 
     int GetNumSegments() const {
-        return (int)(header->e_phnum);
+        return header->e_phnum;
     }
     int GetNumSections() const {
-        return (int)(header->e_shnum);
+        return header->e_shnum;
     }
     const u8* GetPtr(int offset) const {
-        return (u8*)base + offset;
+        return base + offset;
     }
     const char* GetSectionName(int section) const;
     const u8* GetSectionDataPtr(int section) const {
@@ -228,20 +228,20 @@ public:
     u32 GetSectionAddr(SectionID section) const {
         return sectionAddrs[section];
     }
-    unsigned int GetSectionSize(SectionID section) const {
+    u32 GetSectionSize(SectionID section) const {
         return sections[section].sh_size;
     }
-    SectionID GetSectionByName(const char* name, int firstSection = 0) const; //-1 for not found
+    SectionID GetSectionByName(const char* name, int firstSection = 0) const;
 
     bool DidRelocate() const {
         return relocate;
     }
 };
 
-ElfReader::ElfReader(void* ptr) {
-    base = (char*)ptr;
-    base32 = (u32*)ptr;
-    header = (Elf32_Ehdr*)ptr;
+ElfReader::ElfReader(std::span<const u8> buffer) {
+    base = (const u8*)buffer.data();
+    base32 = (const u32*)buffer.data();
+    header = (const Elf32_Ehdr*)buffer.data();
 
     segments = (Elf32_Phdr*)(base + header->e_phoff);
     sections = (Elf32_Shdr*)(base + header->e_shoff);
@@ -262,7 +262,7 @@ const char* ElfReader::GetSectionName(int section) const {
     return nullptr;
 }
 
-std::shared_ptr<CodeSet> ElfReader::LoadInto(Core::System& system, u32 vaddr) {
+void ElfReader::LoadInto(Kernel::CodeSet& codeset, u32 vaddr) {
     LOG_DEBUG(Loader, "String section: {}", header->e_shstrndx);
 
     // Should we relocate?
@@ -280,8 +280,8 @@ std::shared_ptr<CodeSet> ElfReader::LoadInto(Core::System& system, u32 vaddr) {
     u32 base_addr = relocate ? vaddr : 0;
 
     u32 total_image_size = 0;
-    for (unsigned int i = 0; i < header->e_phnum; ++i) {
-        Elf32_Phdr* p = &segments[i];
+    for (u32 i = 0; i < header->e_phnum; ++i) {
+        const Elf32_Phdr* p = &segments[i];
         if (p->p_type == PT_LOAD) {
             total_image_size += (p->p_memsz + 0xFFF) & ~0xFFF;
         }
@@ -290,10 +290,8 @@ std::shared_ptr<CodeSet> ElfReader::LoadInto(Core::System& system, u32 vaddr) {
     std::vector<u8> program_image(total_image_size);
     std::size_t current_image_position = 0;
 
-    std::shared_ptr<CodeSet> codeset = system.Kernel().CreateCodeSet("", 0);
-
-    for (unsigned int i = 0; i < header->e_phnum; ++i) {
-        Elf32_Phdr* p = &segments[i];
+    for (u32 i = 0; i < header->e_phnum; ++i) {
+        const Elf32_Phdr* p = &segments[i];
         LOG_DEBUG(Loader, "Type: {} Vaddr: {:08X} Filesz: {:08X} Memsz: {:08X} ", p->p_type,
                   p->p_vaddr, p->p_filesz, p->p_memsz);
 
@@ -301,11 +299,11 @@ std::shared_ptr<CodeSet> ElfReader::LoadInto(Core::System& system, u32 vaddr) {
             CodeSet::Segment* codeset_segment;
             u32 permission_flags = p->p_flags & (PF_R | PF_W | PF_X);
             if (permission_flags == (PF_R | PF_X)) {
-                codeset_segment = &codeset->CodeSegment();
+                codeset_segment = &codeset.CodeSegment();
             } else if (permission_flags == (PF_R)) {
-                codeset_segment = &codeset->RODataSegment();
+                codeset_segment = &codeset.RODataSegment();
             } else if (permission_flags == (PF_R | PF_W)) {
-                codeset_segment = &codeset->DataSegment();
+                codeset_segment = &codeset.DataSegment();
             } else {
                 LOG_ERROR(Loader, "Unexpected ELF PT_LOAD segment id {} with flags {:X}", i,
                           p->p_flags);
@@ -332,12 +330,8 @@ std::shared_ptr<CodeSet> ElfReader::LoadInto(Core::System& system, u32 vaddr) {
         }
     }
 
-    codeset->entrypoint = base_addr + header->e_entry;
-    codeset->memory = std::move(program_image);
-
-    LOG_DEBUG(Loader, "Done loading.");
-
-    return codeset;
+    codeset.entrypoint = base_addr + header->e_entry;
+    codeset.memory = std::move(program_image);
 }
 
 SectionID ElfReader::GetSectionByName(const char* name, int firstSection) const {
@@ -364,33 +358,47 @@ FileType AppLoader_ELF::IdentifyType(FileUtil::IOFile& file) {
     return FileType::Error;
 }
 
-ResultStatus AppLoader_ELF::Load(std::shared_ptr<Kernel::Process>& process) {
-    if (is_loaded)
+ResultStatus AppLoader_ELF::Load(Kernel::Process** out_process) {
+    if (is_loaded) {
         return ResultStatus::ErrorAlreadyLoaded;
+    }
 
-    if (!file.IsOpen())
+    if (!file.IsOpen()) {
         return ResultStatus::Error;
+    }
 
     // Reset read pointer in case this file has been read before.
     file.Seek(0, SEEK_SET);
 
     std::size_t size = file.GetSize();
-    std::unique_ptr<u8[]> buffer(new u8[size]);
-    if (file.ReadBytes(&buffer[0], size) != size)
+    std::vector<u8> buffer(size);
+    if (file.ReadBytes(buffer.data(), size) != size) {
         return ResultStatus::Error;
+    }
 
-    ElfReader elf_reader(&buffer[0]);
-    std::shared_ptr<CodeSet> codeset = elf_reader.LoadInto(system, Memory::PROCESS_IMAGE_VADDR);
-    codeset->name = filename;
+    // Create the process
+    auto& kernel = system.Kernel();
+    auto* process = Kernel::Process::Create(kernel);
 
-    process = system.Kernel().CreateProcess(std::move(codeset));
+    // Register the process.
+    process->Initialize();
+    Kernel::Process::Register(kernel, process);
+
+    // Load ELF image to codeset.
+    ElfReader elf_reader(buffer);
+    elf_reader.LoadInto(process->codeset, Memory::PROCESS_IMAGE_VADDR);
+
+    // Update process capabilities.
+    process->codeset.name = filename;
     process->Set3dsxKernelCaps();
 
     // Attach the default resource limit (APPLICATION) to the process
     process->resource_limit =
-        system.Kernel().ResourceLimit().GetForCategory(Kernel::ResourceLimitCategory::Application);
+        kernel.ResourceLimit().GetForCategory(Kernel::ResourceLimitCategory::Application);
 
-    process->Run(48, Kernel::DEFAULT_STACK_SIZE);
+    // Start the process.
+    process->Run(48, Kernel::DefaultStackSize);
+    *out_process = process;
 
     is_loaded = true;
     return ResultStatus::Success;

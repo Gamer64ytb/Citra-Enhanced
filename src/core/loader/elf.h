@@ -28,7 +28,7 @@ public:
         return IdentifyType(file);
     }
 
-    ResultStatus Load(std::shared_ptr<Kernel::Process>& process) override;
+    ResultStatus Load(Kernel::Process** out_process) override;
 
 private:
     std::string filename;

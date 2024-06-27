@@ -9,8 +9,8 @@
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/shared_memory.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/service/hid/hid.h"
 #include "core/hle/service/ir/ir_rst.h"
 #include "core/movie.h"
@@ -163,16 +163,15 @@ void IR_RST::Shutdown(Kernel::HLERequestContext& ctx) {
     LOG_DEBUG(Service_IR, "called");
 }
 
-IR_RST::IR_RST(Core::System& system) : ServiceFramework("ir:rst", 2), system(system) {
+IR_RST::IR_RST(Core::System& system)
+    : ServiceFramework("ir:rst", 2), system(system), service_context(system) {
     using namespace Kernel;
     // Note: these two kernel objects are even available before Initialize service function is
     // called.
-    shared_memory =
-        system.Kernel()
-            .CreateSharedMemory(nullptr, 0x1000, MemoryPermission::ReadWrite,
-                                MemoryPermission::Read, 0, MemoryRegion::BASE, "IRRST:SharedMemory")
-            .Unwrap();
-    update_event = system.Kernel().CreateEvent(ResetType::OneShot, "IRRST:UpdateEvent");
+    shared_memory = service_context.CreateSharedMemory(0x1000, MemoryPermission::ReadWrite,
+                                                       MemoryPermission::Read, 0,
+                                                       MemoryRegion::BASE, "IRRST:SharedMemory");
+    update_event = service_context.CreateEvent(ResetType::OneShot, "IRRST:UpdateEvent");
 
     update_callback_id = system.CoreTiming().RegisterEvent(
         "IRRST:UpdateCallBack", [this](std::uintptr_t user_data, s64 cycles_late) {

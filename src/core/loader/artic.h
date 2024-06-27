@@ -51,7 +51,7 @@ public:
         return preferred_regions;
     }
 
-    ResultStatus Load(std::shared_ptr<Kernel::Process>& process) override;
+    ResultStatus Load(Kernel::Process** process) override;
 
     std::pair<std::optional<u32>, ResultStatus> LoadCoreVersion() override;
 
@@ -102,7 +102,7 @@ private:
      * @param process The newly created process
      * @return ResultStatus result of function
      */
-    ResultStatus LoadExec(std::shared_ptr<Kernel::Process>& process);
+    ResultStatus LoadExec(Kernel::Process** out_process);
 
     /// Reads the region lockout info in the SMDH and send it to CFG service
     /// If an SMDH is not present, the program ID is compared against a list

@@ -13,8 +13,8 @@
 #include "common/swap.h"
 #include "core/core.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
-#include "core/hle/kernel/shared_memory.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/service/ir/extra_hid.h"
 #include "core/hle/service/ir/ir_user.h"
 
@@ -86,8 +86,8 @@ static_assert(sizeof(SharedMemoryHeader) == 16, "SharedMemoryHeader has wrong si
  */
 class BufferManager {
 public:
-    BufferManager(std::shared_ptr<Kernel::SharedMemory> shared_memory_, u32 info_offset_,
-                  u32 buffer_offset_, u32 max_packet_count_, u32 buffer_size)
+    BufferManager(Kernel::KSharedMemory* shared_memory_, u32 info_offset_, u32 buffer_offset_,
+                  u32 max_packet_count_, u32 buffer_size)
         : shared_memory(shared_memory_), info_offset(info_offset_), buffer_offset(buffer_offset_),
           max_packet_count(max_packet_count_),
           max_data_size(buffer_size - sizeof(PacketInfo) * max_packet_count_) {
@@ -205,7 +205,7 @@ private:
     }
 
     BufferInfo info{0, 0, 0, 0};
-    std::shared_ptr<Kernel::SharedMemory> shared_memory;
+    Kernel::KSharedMemory* shared_memory;
     u32 info_offset;
     u32 buffer_offset;
     u32 max_packet_count;
@@ -281,7 +281,7 @@ void IR_USER::InitializeIrNopShared(Kernel::HLERequestContext& ctx) {
     const u32 send_buff_size = rp.Pop<u32>();
     const u32 send_buff_packet_count = rp.Pop<u32>();
     const u8 baud_rate = rp.Pop<u8>();
-    shared_memory = rp.PopObject<Kernel::SharedMemory>();
+    shared_memory = rp.PopObject<Kernel::KSharedMemory>();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
 
@@ -426,7 +426,7 @@ void IR_USER::ReleaseReceivedData(Kernel::HLERequestContext& ctx) {
     LOG_TRACE(Service_IR, "called, count={}", count);
 }
 
-IR_USER::IR_USER(Core::System& system) : ServiceFramework("ir:USER", 1) {
+IR_USER::IR_USER(Core::System& system) : ServiceFramework("ir:USER", 1), service_context(system) {
     const FunctionInfo functions[] = {
         // clang-format off
         {0x0001, nullptr, "InitializeIrNop"},
@@ -462,9 +462,9 @@ IR_USER::IR_USER(Core::System& system) : ServiceFramework("ir:USER", 1) {
     using namespace Kernel;
 
     connected_device = false;
-    conn_status_event = system.Kernel().CreateEvent(ResetType::OneShot, "IR:ConnectionStatusEvent");
-    send_event = system.Kernel().CreateEvent(ResetType::OneShot, "IR:SendEvent");
-    receive_event = system.Kernel().CreateEvent(ResetType::OneShot, "IR:ReceiveEvent");
+    conn_status_event = service_context.CreateEvent(ResetType::OneShot, "IR:ConnectionStatusEvent");
+    send_event = service_context.CreateEvent(ResetType::OneShot, "IR:SendEvent");
+    receive_event = service_context.CreateEvent(ResetType::OneShot, "IR:ReceiveEvent");
 
     extra_hid = std::make_unique<ExtraHID>([this](std::span<const u8> data) { PutToReceive(data); },
                                            system.CoreTiming(), system.Movie());
