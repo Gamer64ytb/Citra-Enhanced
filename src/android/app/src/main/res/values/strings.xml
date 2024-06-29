@@ -469,6 +469,7 @@
     <string name="delete_save">Delete save</string>
     <string name="import_save">Import</string>
     <string name="export_save">Export</string>
+    <string name="shortcut">Shortcut</string>
 
     <!-- Cheats -->
     <string name="cheats">Cheats</string>
